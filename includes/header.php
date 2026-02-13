@@ -1,7 +1,10 @@
 <?php
+// includes/header.php
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
+
+$page_desc = $page_desc ?? "EnjoyCity - Turista nella tua città";
 ?>
 <!doctype html>
 <html lang="it">
@@ -9,8 +12,11 @@ if (session_status() === PHP_SESSION_NONE) {
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="description" content="<?= htmlspecialchars($page_desc, ENT_QUOTES, 'UTF-8') ?>">
+
     <title><?= isset($page_title) ? htmlspecialchars($page_title, ENT_QUOTES, 'UTF-8') : 'EnjoyCity' ?></title>
-    <link rel="stylesheet" href="assets/css/style.css?v=99">
+
+    <link rel="stylesheet" href="<?= base_url('assets/css/style.css?v=99') ?>">
 </head>
 
 <body>

@@ -1,5 +1,5 @@
 <?php
-// FILE: registrazione.php
+// registrazione.php
 
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
@@ -7,124 +7,165 @@ error_reporting(E_ALL);
 
 require_once __DIR__ . '/includes/config.php';
 
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
+$page_title = "Registrazione - EnjoyCity";
+
 $nome = "";
 $cognome = "";
 $email = "";
 $errore = "";
 $successo = "";
 
+$conn = db_connect();
+
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
-    $nome     = $_POST['nome'] ?? '';
-    $cognome  = $_POST['cognome'] ?? '';
-    $email    = $_POST['email'] ?? '';
+
+    $nome     = trim((string)($_POST['nome'] ?? ''));
+    $cognome  = trim((string)($_POST['cognome'] ?? ''));
+    $email    = trim((string)($_POST['email'] ?? ''));
     $password = (string)($_POST['password'] ?? '');
     $conferma = (string)($_POST['conferma'] ?? '');
 
+    // Validazioni lato server (fonte di verità)
     if ($nome === '' || $cognome === '' || $email === '' || $password === '' || $conferma === '') {
         $errore = "Tutti i campi sono obbligatori.";
     } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         $errore = "Email non valida.";
+    } elseif (mb_strlen($password) < 8) {
+        $errore = "La password deve contenere almeno 8 caratteri.";
     } elseif ($password !== $conferma) {
         $errore = "Le password non coincidono.";
-    } elseif (strlen($password) < 8) {
-        $errore = "La password deve essere di almeno 8 caratteri.";
     } else {
-        try {
-            // email già registrata?
-            $stmt = $pdo->prepare("SELECT id FROM utenti WHERE email = ?");
-            $stmt->execute([$email]);
 
-            if ($stmt->fetch()) {
-                $errore = "Questa email è già registrata.";
+        // Email già registrata?
+        $sqlCheck = "SELECT id FROM utenti WHERE email = $1 LIMIT 1;";
+        $resCheck = pg_query_params($conn, $sqlCheck, [$email]);
+
+        if ($resCheck && pg_num_rows($resCheck) > 0) {
+            $errore = "Questa email è già registrata.";
+        } else {
+            $hash = password_hash($password, PASSWORD_DEFAULT);
+
+            $sqlIns = "
+                INSERT INTO utenti (nome, cognome, email, password, ruolo)
+                VALUES ($1, $2, $3, $4, 'user');
+            ";
+            $resIns = pg_query_params($conn, $sqlIns, [$nome, $cognome, $email, $hash]);
+
+            if ($resIns) {
+                $successo = "Registrazione avvenuta con successo! Ora puoi accedere.";
+                $nome = $cognome = $email = "";
             } else {
-                $hash = password_hash($password, PASSWORD_DEFAULT);
-
-                // se hai la colonna bloccato, mettila a false
-                $sql = "INSERT INTO utenti (nome, cognome, email, password, ruolo) 
-                        VALUES (?, ?, ?, ?, 'user')";
-                $stmt = $pdo->prepare($sql);
-
-                if ($stmt->execute([$nome, $cognome, $email, $hash])) {
-                    $successo = "Registrazione avvenuta con successo! <a href='login.php'>Accedi ora</a>";
-                    $nome = $cognome = $email = "";
-                } else {
-                    $errore = "Errore durante l'inserimento nel database.";
-                }
+                $errore = "Errore durante la registrazione. Riprova.";
             }
-        } catch (PDOException $e) {
-            $errore = "Errore Database: " . $e->getMessage();
         }
     }
 }
+
+db_close($conn);
 ?>
-<!DOCTYPE html>
-<html lang="it">
 
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Registrazione - Enjoy City</title>
-    <link rel="stylesheet" href="assets/css/style.css">
-</head>
+<?php require_once __DIR__ . '/includes/header.php'; ?>
 
-<body class="auth-page">
-
-    <div class="auth-container" style="max-width: 500px; margin: 50px auto; padding: 30px; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-
-        <div style="text-align: center; margin-bottom: 20px;">
-            <img src="assets/img/logo.png" alt="Logo" style="height: 60px;">
-            <h2 style="color: #2E7D32;">Crea il tuo account</h2>
-        </div>
+<section class="auth">
+    <div class="auth-card">
+        <header class="auth-head">
+            <img src="assets/img/logo.png" alt="EnjoyCity logo" class="auth-logo" onerror="this.style.display='none'">
+            <h1>Crea il tuo account</h1>
+            <p>Compila i campi per registrarti.</p>
+        </header>
 
         <?php if ($errore !== ''): ?>
-            <div style="background-color:#f8d7da; color:#721c24; padding:10px; margin-bottom:15px; border-radius:5px; border:1px solid #f5c6cb;">
-                <?= $errore ?>
+            <div class="alert alert-error" role="alert">
+                <?= htmlspecialchars($errore, ENT_QUOTES, 'UTF-8') ?>
             </div>
         <?php endif; ?>
 
         <?php if ($successo !== ''): ?>
-            <div style="background-color:#d1e7dd; color:#0f5132; padding:10px; margin-bottom:15px; border-radius:5px; border:1px solid #badbcc;">
-                <?= $successo ?>
+            <div class="alert alert-success" role="status">
+                <?= htmlspecialchars($successo, ENT_QUOTES, 'UTF-8') ?>
+                <div class="mt-8">
+                    <a class="link-register" href="login.php">Accedi ora</a>
+                </div>
             </div>
         <?php endif; ?>
 
-        <form action="registrazione.php" method="POST">
-            <div style="margin-bottom: 12px;">
-                <label for="nome">Nome:</label>
-                <input type="text" id="nome" name="nome" value="<?= $nome ?>" required style="width:100%; padding:10px; margin-top:5px;">
+        <form id="registerForm" class="auth-form" action="registrazione.php" method="POST" novalidate>
+            <div class="field">
+                <label for="nome">Nome</label>
+                <input
+                    type="text"
+                    id="nome"
+                    name="nome"
+                    autocomplete="given-name"
+                    required
+                    value="<?= htmlspecialchars($nome, ENT_QUOTES, 'UTF-8') ?>">
+                <small class="hint" id="nomeHint"></small>
             </div>
 
-            <div style="margin-bottom: 12px;">
-                <label for="cognome">Cognome:</label>
-                <input type="text" id="cognome" name="cognome" value="<?= $cognome ?>" required style="width:100%; padding:10px; margin-top:5px;">
+            <div class="field">
+                <label for="cognome">Cognome</label>
+                <input
+                    type="text"
+                    id="cognome"
+                    name="cognome"
+                    autocomplete="family-name"
+                    required
+                    value="<?= htmlspecialchars($cognome, ENT_QUOTES, 'UTF-8') ?>">
+                <small class="hint" id="cognomeHint"></small>
             </div>
 
-            <div style="margin-bottom: 12px;">
-                <label for="email">Email:</label>
-                <input type="email" id="email" name="email" value="<?= $email ?>" required style="width:100%; padding:10px; margin-top:5px;">
+            <div class="field">
+                <label for="email">Email</label>
+                <input
+                    type="email"
+                    id="email"
+                    name="email"
+                    autocomplete="email"
+                    required
+                    value="<?= htmlspecialchars($email, ENT_QUOTES, 'UTF-8') ?>">
+                <small class="hint" id="emailHint"></small>
             </div>
 
-            <div style="margin-bottom: 12px;">
-                <label for="password">Password (min 8):</label>
-                <input type="password" id="password" name="password" required style="width:100%; padding:10px; margin-top:5px;">
+            <div class="field">
+                <label for="password">Password</label>
+                <input
+                    type="password"
+                    id="password"
+                    name="password"
+                    autocomplete="new-password"
+                    required
+                    minlength="8">
+                <small class="hint" id="passwordHint"></small>
             </div>
 
-            <div style="margin-bottom: 18px;">
-                <label for="conferma">Conferma Password:</label>
-                <input type="password" id="conferma" name="conferma" required style="width:100%; padding:10px; margin-top:5px;">
+            <div class="field">
+                <label for="conferma">Conferma password</label>
+                <input
+                    type="password"
+                    id="conferma"
+                    name="conferma"
+                    autocomplete="new-password"
+                    required
+                    minlength="8">
+                <small class="hint" id="confermaHint"></small>
             </div>
 
-            <button type="submit" style="width: 100%; padding: 12px; background-color: #2E7D32; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px;">
-                Registrati
-            </button>
+            <button type="submit" class="btn btn-primary w-100">Registrati</button>
+
+            <p class="auth-links">
+                Hai già un account?
+                <a href="login.php" class="link-register">Accedi</a>
+            </p>
+
+            <p class="auth-links">
+                <a href="index.php" class="link-muted">&larr; Torna alla Home</a>
+            </p>
         </form>
-
-        <p style="text-align:center; margin-top:18px;">
-            Hai già un account? <a href="login.php" style="color:#2E7D32; font-weight:bold;">Accedi</a><br>
-            <a href="index.php" style="color:#666; font-size:0.9em; text-decoration:none;">&larr; Torna alla Home</a>
-        </p>
     </div>
+</section>
 
-</body>
-
-</html>
+<?php require_once __DIR__ . '/includes/footer.php'; ?>
