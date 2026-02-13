@@ -1,243 +1,244 @@
 <?php
-// FILE: area_personale.php
+// area_personale.php
 ini_set('display_errors', 1);
 error_reporting(E_ALL);
 
-require_once __DIR__ . '/includes/config.php';
+require_once __DIR__ . '/includes/config.php'; // include già session_start()
 
-// Controllo Accesso
+// Solo user loggato
+if (!isset($_SESSION['logged']) || $_SESSION['logged'] !== true) {
+    header("Location: " . base_url('login.php'));
+    exit;
+}
 if (!isset($_SESSION['ruolo']) || $_SESSION['ruolo'] !== 'user') {
-    header("Location: login.php");
+    header("Location: " . base_url('login.php'));
     exit;
 }
 
-$user_id = $_SESSION['user_id'];
-
-// 1. GESTIONE DRAG & DROP (Salvataggio Preferenze)
-// Se arriva una POST con l'ordine delle categorie
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ordine_categorie'])) {
-    $ordine = explode(',', $_POST['ordine_categorie']);
-
-    // Puliamo le vecchie preferenze
-    $pdo->prepare("DELETE FROM preferenze_utente WHERE utente_id = ?")->execute([$user_id]);
-
-    // Inseriamo le nuove
-    $stmt = $pdo->prepare("INSERT INTO preferenze_utente (utente_id, categoria_id, ordine) VALUES (?, ?, ?)");
-    foreach ($ordine as $index => $cat_id) {
-        $stmt->execute([$user_id, $cat_id, $index + 1]);
-    }
-    $msg = "Preferenze aggiornate!";
+$user_id = (int)($_SESSION['user_id'] ?? 0);
+if ($user_id <= 0) {
+    header("Location: " . base_url('login.php'));
+    exit;
 }
 
-// 2. RECUPERO CATEGORIE (Ordinate per preferenza se esistono, altrimenti default)
-// Questa query complessa fa un LEFT JOIN per vedere se l'utente ha già ordinato le categorie
-$sql_cat = "
-    SELECT c.id, c.nome 
-    FROM categorie c
-    LEFT JOIN preferenze_utente pu ON c.id = pu.categoria_id AND pu.utente_id = ?
-    ORDER BY CASE WHEN pu.ordine IS NOT NULL THEN 0 ELSE 1 END, pu.ordine, c.nome
-";
-$stmt = $pdo->prepare($sql_cat);
-$stmt->execute([$user_id]);
-$categorie = $stmt->fetchAll();
+$conn = db_connect();
 
-// 3. RECUPERO I MIEI EVENTI (Futuri)
-$sql_my_events = "
-    SELECT e.*, p.quantita 
-    FROM prenotazioni p
-    JOIN eventi e ON p.evento_id = e.id
-    WHERE p.utente_id = ? AND e.data_evento > NOW()
-    ORDER BY e.data_evento ASC
-";
-$stmt = $pdo->prepare($sql_my_events);
-$stmt->execute([$user_id]);
-$miei_eventi = $stmt->fetchAll();
+$flash_ok = '';
+$flash_err = '';
 
+/* =========================================
+   POST: Salvataggio preferenze (drag & drop)
+   ========================================= */
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+
+    $ordine_raw = trim((string)($_POST['ordine_categorie'] ?? ''));
+
+    if ($ordine_raw === '') {
+        $flash_err = "Ordine non valido.";
+    } else {
+        $ids = array_values(array_filter(array_map('trim', explode(',', $ordine_raw))));
+
+        // validazione: numeri e no duplicati
+        $seen = [];
+        $valid = true;
+        foreach ($ids as $x) {
+            if (!ctype_digit($x)) { $valid = false; break; }
+            if (isset($seen[$x])) { $valid = false; break; }
+            $seen[$x] = true;
+        }
+
+        if (!$valid || count($ids) === 0) {
+            $flash_err = "Ordine categorie non valido.";
+        } else {
+            // check che le categorie esistano davvero
+            $placeholders = [];
+            $params = [];
+            foreach ($ids as $i => $catId) {
+                $placeholders[] = '$' . ($i + 1);
+                $params[] = (int)$catId;
+            }
+            $in = implode(',', $placeholders);
+
+            $resCheck = pg_query_params($conn, "SELECT id FROM categorie WHERE id IN ($in);", $params);
+            $found = [];
+            if ($resCheck) {
+                while ($r = pg_fetch_assoc($resCheck)) $found[(int)$r['id']] = true;
+            }
+
+            $allExist = true;
+            foreach ($ids as $catId) {
+                if (!isset($found[(int)$catId])) { $allExist = false; break; }
+            }
+
+            if (!$allExist) {
+                $flash_err = "Una o più categorie non sono valide.";
+            } else {
+                // transazione
+                pg_query($conn, "BEGIN");
+
+                $okDel = pg_query_params($conn, "DELETE FROM preferenze_utente WHERE utente_id = $1;", [$user_id]);
+
+                $okIns = true;
+                $sqlIns = "INSERT INTO preferenze_utente (utente_id, categoria_id, ordine) VALUES ($1, $2, $3);";
+                foreach ($ids as $index => $catId) {
+                    $resIns = pg_query_params($conn, $sqlIns, [$user_id, (int)$catId, $index + 1]);
+                    if (!$resIns) { $okIns = false; break; }
+                }
+
+                if ($okDel && $okIns) {
+                    pg_query($conn, "COMMIT");
+                    $flash_ok = "Preferenze aggiornate!";
+                } else {
+                    pg_query($conn, "ROLLBACK");
+                    $flash_err = "Errore durante il salvataggio delle preferenze.";
+                }
+            }
+        }
+    }
+}
+
+/* =========================================
+   GET: Categorie (ordinate per preferenze)
+   ========================================= */
+$categorie = [];
+$sqlCat = "
+  SELECT c.id, c.nome, pu.ordine
+  FROM categorie c
+  LEFT JOIN preferenze_utente pu
+    ON pu.categoria_id = c.id AND pu.utente_id = $1
+  ORDER BY
+    CASE WHEN pu.ordine IS NULL THEN 1 ELSE 0 END,
+    pu.ordine ASC NULLS LAST,
+    c.nome ASC;
+";
+$resCat = pg_query_params($conn, $sqlCat, [$user_id]);
+if ($resCat) {
+    while ($row = pg_fetch_assoc($resCat)) $categorie[] = $row;
+}
+
+/* =========================================
+   GET: Miei eventi futuri prenotati
+   ========================================= */
+$miei_eventi = [];
+$sqlMy = "
+  SELECT
+    e.id AS evento_id,
+    e.titolo,
+    e.luogo,
+    e.data_evento,
+    p.quantita
+  FROM prenotazioni p
+  JOIN eventi e ON e.id = p.evento_id
+  WHERE p.utente_id = $1
+    AND e.stato = 'approvato'
+    AND e.data_evento >= NOW()
+  ORDER BY e.data_evento ASC
+  LIMIT 20;
+";
+$resMy = pg_query_params($conn, $sqlMy, [$user_id]);
+if ($resMy) {
+    while ($row = pg_fetch_assoc($resMy)) $miei_eventi[] = $row;
+}
+
+db_close($conn);
+
+$page_title = "Area personale - EnjoyCity";
+$page_desc  = "Area personale: preferenze e prenotazioni.";
 ?>
-<!DOCTYPE html>
-<html lang="it">
 
-<head>
-    <meta charset="UTF-8">
-    <title>Area Personale - Enjoy City</title>
-    <link rel="stylesheet" href="assets/css/style.css">
-    <style>
-        .dashboard-container {
-            display: flex;
-            gap: 30px;
-            margin-top: 20px;
-        }
+<?php require_once __DIR__ . '/includes/header.php'; ?>
 
-        .col {
-            flex: 1;
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-        }
+<section class="section-title">
+  <div>
+    <h2>Area personale</h2>
+    <p class="muted">Gestisci prenotazioni e preferenze (drag & drop).</p>
+  </div>
+  <a class="btn" href="<?= base_url('eventi.php') ?>">Esplora eventi</a>
+</section>
 
-        /* Stili Drag & Drop */
-        #sortable-list {
-            list-style: none;
-            padding: 0;
-        }
+<?php if ($flash_ok !== ''): ?>
+  <div class="alert alert-success" role="status"><?= e($flash_ok) ?></div>
+<?php endif; ?>
 
-        #sortable-list li {
-            padding: 10px;
-            margin: 5px 0;
-            background: #f9f9f9;
-            border: 1px solid #ddd;
-            cursor: grab;
-            display: flex;
-            justify-content: space-between;
-        }
+<?php if ($flash_err !== ''): ?>
+  <div class="alert alert-error" role="alert"><?= e($flash_err) ?></div>
+<?php endif; ?>
 
-        #sortable-list li.dragging {
-            opacity: 0.5;
-            border: 2px dashed #2E7D32;
-        }
+<section class="area-grid" aria-label="Pannelli area personale">
 
-        .save-btn {
-            margin-top: 10px;
-            width: 100%;
-            background: #FF9800;
-        }
-    </style>
-</head>
+  <!-- PANNELLO EVENTI -->
+  <article class="card">
+    <div class="card-body">
+      <h3>🎫 I tuoi prossimi eventi</h3>
 
-<body>
-
-    <header>
-        <h1>Area Personale</h1>
-        <nav>
-            <a href="index.php">Home</a>
-            <a href="proponi_evento.php">Proponi Evento</a>
-            <a href="logout.php">Esci</a>
-        </nav>
-    </header>
-
-    <main style="max-width: 1000px; margin: 0 auto; padding: 20px;">
-
-        <h2>Ciao, <?= htmlspecialchars($_SESSION['nome_utente']) ?>!</h2>
-        <?php if (isset($msg)) echo "<p style='color:green'>$msg</p>"; ?>
-
-        <div class="dashboard-container">
-
-            <div class="col">
-                <h3>🎫 I tuoi prossimi eventi</h3>
-                <?php if (count($miei_eventi) > 0): ?>
-
-                    <div style="background:#e8f5e9; padding:15px; border-radius:5px; margin-bottom:20px; border:1px solid #2E7D32;">
-                        <h4>Countdown: <?= htmlspecialchars($miei_eventi[0]['titolo']) ?></h4>
-                        <div id="countdown" data-date="<?= $miei_eventi[0]['data_evento'] ?>" style="font-size:1.5em; font-weight:bold; color:#2E7D32;">Calcolo...</div>
-                    </div>
-
-                    <ul>
-                        <?php foreach ($miei_eventi as $ev): ?>
-                            <li style="margin-bottom:10px; padding-bottom:10px; border-bottom:1px solid #eee;">
-                                <strong><?= htmlspecialchars($ev['titolo']) ?></strong><br>
-                                📅 <?= date('d/m/Y H:i', strtotime($ev['data_evento'])) ?><br>
-                                🎟 Biglietti: <?= $ev['quantita'] ?>
-                            </li>
-                        <?php endforeach; ?>
-                    </ul>
-                <?php else: ?>
-                    <p>Non hai prenotazioni attive.</p>
-                    <a href="eventi.php" class="btn">Cerca Eventi</a>
-                <?php endif; ?>
-            </div>
-
-            <div class="col">
-                <h3>❤️ Le tue preferenze</h3>
-                <p><small>Trascina le categorie per ordinare i tuoi interessi. I risultati nella home si adatteranno!</small></p>
-
-                <form method="POST" id="pref-form">
-                    <ul id="sortable-list">
-                        <?php foreach ($categorie as $cat): ?>
-                            <li draggable="true" data-id="<?= $cat['id'] ?>">
-                                <span><?= htmlspecialchars($cat['nome']) ?></span>
-                                <span>☰</span>
-                            </li>
-                        <?php endforeach; ?>
-                    </ul>
-                    <input type="hidden" name="ordine_categorie" id="ordine_input">
-                    <button type="button" onclick="salvaOrdine()" class="btn save-btn">Salva Preferenze</button>
-                </form>
-            </div>
-
+      <?php if (count($miei_eventi) === 0): ?>
+        <p class="muted">Non hai prenotazioni attive.</p>
+        <a class="cta-login" href="<?= base_url('eventi.php') ?>">Cerca eventi <small>e prenota</small></a>
+      <?php else: ?>
+        <?php
+          $first = $miei_eventi[0];
+          $firstISO = date('c', strtotime((string)$first['data_evento']));
+        ?>
+        <div class="countdown-box">
+          <div class="tag-row">
+            <span class="tag cardtag hot">Countdown</span>
+            <span class="tag cardtag"><?= e(fmt_datetime($first['data_evento'])) ?></span>
+          </div>
+          <strong><?= e($first['titolo']) ?></strong>
+          <p class="muted"><?= e($first['luogo']) ?></p>
+          <p class="countdown" data-countdown="<?= e($firstISO) ?>">Calcolo…</p>
         </div>
 
-    </main>
+        <ul class="my-list" aria-label="Lista prenotazioni">
+          <?php foreach ($miei_eventi as $ev): ?>
+            <?php $evId = (int)$ev['evento_id']; ?>
+            <li class="my-item">
+              <div>
+                <strong><?= e($ev['titolo']) ?></strong>
+                <div class="meta">
+                  <span class="pill"><?= e(fmt_datetime($ev['data_evento'])) ?></span>
+                  <span class="pill"><?= e($ev['luogo']) ?></span>
+                  <span class="pill">Biglietti: <?= (int)$ev['quantita'] ?></span>
+                </div>
+              </div>
+              <a class="btn" href="<?= base_url('evento.php?id=' . $evId) ?>">Apri</a>
+            </li>
+          <?php endforeach; ?>
+        </ul>
+      <?php endif; ?>
+    </div>
+  </article>
 
-    <script>
-        // 1. Script Countdown
-        const countdownEl = document.getElementById('countdown');
-        if (countdownEl) {
-            const targetDate = new Date(countdownEl.dataset.date).getTime();
-            setInterval(() => {
-                const now = new Date().getTime();
-                const distance = targetDate - now;
-                if (distance < 0) {
-                    countdownEl.innerHTML = "Evento Iniziato!";
-                    return;
-                }
-                const d = Math.floor(distance / (1000 * 60 * 60 * 24));
-                const h = Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-                countdownEl.innerHTML = `${d}g ${h}h`;
-            }, 1000);
-        }
+  <!-- PANNELLO PREFERENZE -->
+  <article class="card">
+    <div class="card-body">
+      <h3>❤️ Le tue preferenze</h3>
+      <p class="muted">Trascina le categorie per ordinarle. Poi salva.</p>
 
-        // 2. Script Drag & Drop
-        const list = document.getElementById('sortable-list');
-        let draggedItem = null;
+      <?php if (count($categorie) === 0): ?>
+        <p class="muted">Nessuna categoria disponibile.</p>
+      <?php else: ?>
+        <form method="post" id="pref-form" action="<?= base_url('area_personale.php') ?>" novalidate>
+          <ul id="sortable-list" class="sortable" aria-label="Ordina categorie">
+            <?php foreach ($categorie as $cat): ?>
+              <li class="sortable-item" draggable="true" data-id="<?= (int)$cat['id'] ?>">
+                <span><?= e($cat['nome']) ?></span>
+                <span aria-hidden="true">☰</span>
+              </li>
+            <?php endforeach; ?>
+          </ul>
 
-        list.addEventListener('dragstart', (e) => {
-            draggedItem = e.target;
-            e.target.classList.add('dragging');
-        });
+          <input type="hidden" name="ordine_categorie" id="ordine_input" value="">
+          <button type="button" class="btn-search pref-save" id="savePrefsBtn">Salva preferenze</button>
+        </form>
 
-        list.addEventListener('dragend', (e) => {
-            e.target.classList.remove('dragging');
-            draggedItem = null;
-        });
+        <p class="muted pref-hint">Suggerimento: trascina e poi clicca “Salva preferenze”.</p>
+      <?php endif; ?>
+    </div>
+  </article>
 
-        list.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            const afterElement = getDragAfterElement(list, e.clientY);
-            if (afterElement == null) {
-                list.appendChild(draggedItem);
-            } else {
-                list.insertBefore(draggedItem, afterElement);
-            }
-        });
+</section>
 
-        function getDragAfterElement(container, y) {
-            const draggableElements = [...container.querySelectorAll('li:not(.dragging)')];
-            return draggableElements.reduce((closest, child) => {
-                const box = child.getBoundingClientRect();
-                const offset = y - box.top - box.height / 2;
-                if (offset < 0 && offset > closest.offset) {
-                    return {
-                        offset: offset,
-                        element: child
-                    };
-                } else {
-                    return closest;
-                }
-            }, {
-                offset: Number.NEGATIVE_INFINITY
-            }).element;
-        }
+<script src="<?= base_url('assets/js/area_personale.js') ?>"></script>
 
-        function salvaOrdine() {
-            const items = list.querySelectorAll('li');
-            let ids = [];
-            items.forEach(item => ids.push(item.getAttribute('data-id')));
-            document.getElementById('ordine_input').value = ids.join(',');
-            document.getElementById('pref-form').submit();
-        }
-    </script>
-
-</body>
-
-</html>
+<?php require_once __DIR__ . '/includes/footer.php'; ?>

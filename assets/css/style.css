@@ -1002,5 +1002,136 @@
     .review-grid { grid-template-columns: 1fr; }
   }
   
+  /* ==========================
+   EVENTO (DETTAGLIO)
+   ========================== */
+
+.breadcrumb{
+  margin: 10px 0 14px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.breadcrumb a:hover{ text-decoration: underline; }
+
+.event-hero{
+  display:grid;
+  grid-template-columns: 1.05fr 0.95fr;
+  gap: 14px;
+  margin-top: 10px;
+}
+.event-hero-body h1{
+  margin: 0;
+  font-size: 22px;
+}
+.event-layout{
+  display:grid;
+  grid-template-columns: 1.35fr 0.65fr;
+  gap: 14px;
+  margin-top: 14px;
+  margin-bottom: 60px;
+}
+
+@media (max-width: 980px){
+  .event-hero{ grid-template-columns: 1fr; }
+  .event-layout{ grid-template-columns: 1fr; }
+}
+
+/* ==========================
+   EVENTI (LISTA)
+   ========================== */
+/* EVENTI - header pagina */
+.eventi-head{ margin-top: 8px; }
+
+.eventi-head .btn{
+  border: 1px solid rgba(15,118,110,0.18);
+  background: rgba(15,118,110,0.06);
+  color: var(--green);
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-weight: 900;
+}
+.eventi-head .btn:hover{ background: rgba(15,118,110,0.10); }
+
+/* Rendiamo il reset bottone “simile” */
+.search-card a.btn-search{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  text-decoration:none;
+}
+/* ==========================
+   AREA PERSONALE
+   ========================== */
+.area-grid{
+  display:grid;
+  grid-template-columns: 1.15fr 0.85fr;
+  gap: 14px;
+  margin-top: 12px;
+}
+@media (max-width: 980px){
+  .area-grid{ grid-template-columns: 1fr; }
+}
+
+.countdown-box{
+  margin-top: 10px;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: rgba(15,118,110,0.06);
+}
+
+.my-list{
+  list-style:none;
+  padding:0;
+  margin: 12px 0 0;
+  display:flex;
+  flex-direction:column;
+  gap: 10px;
+}
+
+.my-item{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background:#fff;
+}
+
+.sortable{
+  list-style:none;
+  padding:0;
+  margin: 12px 0 0;
+  display:flex;
+  flex-direction:column;
+  gap: 8px;
+}
+
+.sortable-item{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background:#fff;
+  cursor: grab;
+  user-select:none;
+}
+.sortable-item.dragging{
+  opacity: .55;
+  border-style:dashed;
+}
+
+.pref-save{
+  width:100%;
+  margin-top: 12px;
+}
+.pref-hint{ margin-top: 10px; }
+
+
   
   

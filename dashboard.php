@@ -41,63 +41,84 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $action = $_POST['action'] ?? '';
 
-    // 1) Annulla prenotazione
-    if ($action === 'annulla_prenotazione') {
+  // 1) Annulla prenotazione
+if ($action === 'annulla_prenotazione') {
 
-        $id = $_POST['id_prenotazione'] ?? '';
-        $ok = '';
-        $err = '';
+    $id = $_POST['id_prenotazione'] ?? '';
+    $ok = '';
+    $err = '';
 
-        if (!ctype_digit($id)) {
-            $err = "Prenotazione non valida.";
-        } else {
-            // DELETE SOLO se appartiene all'utente loggato
-            $sql = "DELETE FROM prenotazioni WHERE id = $1 AND utente_id = $2;";
-            $res = pg_query_params($conn, $sql, [(int)$id, $user_id]);
-
-            if ($res && pg_affected_rows($res) > 0) {
-                $ok = "Prenotazione annullata con successo.";
-            } else {
-                $err = "Non è stato possibile annullare la prenotazione.";
-            }
-        }
-
+    if (!ctype_digit($id)) {
+        $err = "Prenotazione non valida.";
         db_close($conn);
-        header("Location: " . base_url("dashboard.php?msg=" . urlencode($ok) . "&err=" . urlencode($err)));
+        header("Location: " . base_url("dashboard.php?msg=&err=" . urlencode($err)));
         exit;
     }
 
-    // 2) Invia recensione
-    if ($action === 'invia_recensione') {
+    $pren_id = (int)$id;
 
-        $voto  = $_POST['voto'] ?? '';
-        $testo = trim((string)($_POST['testo'] ?? ''));
+    // TRANSAZIONE: delete + update contatore
+    pg_query($conn, "BEGIN");
 
-        $ok = '';
-        $err = '';
+    // 1) Recupero evento_id (e controllo ownership)
+    $sqlGet = "SELECT evento_id
+               FROM prenotazioni
+               WHERE id = $1 AND utente_id = $2
+               LIMIT 1;";
+    $resGet = pg_query_params($conn, $sqlGet, [$pren_id, $user_id]);
+    $rowGet = $resGet ? pg_fetch_assoc($resGet) : null;
 
-        if (!ctype_digit($voto) || (int)$voto < 1 || (int)$voto > 5) {
-            $err = "Seleziona un voto valido (1-5).";
-        } elseif (mb_strlen($testo) < 10 || mb_strlen($testo) > 250) {
-            $err = "Il testo deve essere tra 10 e 250 caratteri.";
-        } else {
-            $sql = "
-                INSERT INTO recensioni (utente_id, testo, voto, stato, data_recensione)
-                VALUES ($1, $2, $3, 'in_attesa', NOW());
-            ";
-            $res = pg_query_params($conn, $sql, [$user_id, $testo, (int)$voto]);
-
-            if ($res) {
-                $ok = "Recensione inviata! Sarà pubblicata dopo l’approvazione dell’admin.";
-            } else {
-                $err = "Errore durante l’invio della recensione.";
-            }
-        }
-
+    if (!$rowGet) {
+        pg_query($conn, "ROLLBACK");
+        $err = "Non è stato possibile annullare la prenotazione.";
         db_close($conn);
-        header("Location: " . base_url("dashboard.php?msg=" . urlencode($ok) . "&err=" . urlencode($err) . "#recensioni"));
+        header("Location: " . base_url("dashboard.php?msg=&err=" . urlencode($err)));
         exit;
     }
+
+    $evento_id = (int)$rowGet['evento_id'];
+
+    // 2) Delete prenotazione
+    $sqlDel = "DELETE FROM prenotazioni
+               WHERE id = $1 AND utente_id = $2;";
+    $resDel = pg_query_params($conn, $sqlDel, [$pren_id, $user_id]);
+
+    if (!$resDel || pg_affected_rows($resDel) <= 0) {
+        pg_query($conn, "ROLLBACK");
+        $err = "Non è stato possibile annullare la prenotazione.";
+        db_close($conn);
+        header("Location: " . base_url("dashboard.php?msg=&err=" . urlencode($err)));
+        exit;
+    }
+
+    // 3) Ricalcolo e aggiorno eventi.posti_prenotati
+    $sqlUpd = "
+        UPDATE eventi
+        SET posti_prenotati = (
+            SELECT COALESCE(SUM(quantita), 0)
+            FROM prenotazioni
+            WHERE evento_id = $1
+        )
+        WHERE id = $1;
+    ";
+    $resUpd = pg_query_params($conn, $sqlUpd, [$evento_id]);
+
+    if (!$resUpd) {
+        pg_query($conn, "ROLLBACK");
+        $err = "Prenotazione annullata, ma errore aggiornamento posti.";
+        db_close($conn);
+        header("Location: " . base_url("dashboard.php?msg=&err=" . urlencode($err)));
+        exit;
+    }
+
+    pg_query($conn, "COMMIT");
+
+    $ok = "Prenotazione annullata con successo.";
+    db_close($conn);
+    header("Location: " . base_url("dashboard.php?msg=" . urlencode($ok) . "&err="));
+    exit;
+}
+
 }
 
 /* =========================================

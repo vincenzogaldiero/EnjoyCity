@@ -118,7 +118,12 @@ $nomeUtente = $_SESSION['nome_utente'] ?? $_SESSION['nome'] ?? 'Utente';
                         </div>
                     </div>
 
-                    <a class="btn" href="<?= base_url('logout.php') ?>">Logout</a>
+                    <a
+                    class="btn logout-link"
+                    href="<?= base_url('logout.php') ?>"
+                    data-confirm="Sei sicuro di voler uscire?">
+                    Logout
+                    </a>
 
                 <?php endif; ?>
 
