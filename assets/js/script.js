@@ -149,4 +149,47 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
   
-  
+  // Conferma azioni (logout, ecc.)
+document.addEventListener("click", function (e) {
+  const el = e.target.closest("[data-confirm]");
+  if (!el) return;
+
+  const msg = el.getAttribute("data-confirm") || "Sei sicuro?";
+  if (!window.confirm(msg)) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+});
+
+/* FAQ */
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest(".accordion-btn");
+  if (!btn) return;
+
+  const panelId = btn.getAttribute("aria-controls");
+  const panel = document.getElementById(panelId);
+  if (!panel) return;
+
+  const isOpen = btn.getAttribute("aria-expanded") === "true";
+
+  // chiudi/apri con animazione
+  if (isOpen) {
+    btn.setAttribute("aria-expanded", "false");
+    btn.classList.remove("is-open");
+    panel.style.maxHeight = panel.scrollHeight + "px";
+    requestAnimationFrame(() => {
+      panel.style.maxHeight = "0px";
+    });
+    setTimeout(() => {
+      panel.hidden = true;
+    }, 220);
+  } else {
+    btn.setAttribute("aria-expanded", "true");
+    btn.classList.add("is-open");
+    panel.hidden = false;
+    panel.style.maxHeight = "0px";
+    requestAnimationFrame(() => {
+      panel.style.maxHeight = panel.scrollHeight + "px";
+    });
+  }
+});
