@@ -2,7 +2,6 @@
 // index.php
 
 require_once __DIR__ . '/includes/config.php';
-require_once __DIR__ . '/includes/functions.php';
 
 $page_title = "EnjoyCity - Turista nella tua provincia";
 
