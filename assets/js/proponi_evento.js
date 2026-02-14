@@ -1,4 +1,4 @@
-// FILE: assets/js/validazione_proponi_evento.js
+// FILE: assets/js/proponi_evento.js
 document.addEventListener("DOMContentLoaded", () => {
   const form = document.getElementById("formProponiEvento");
   if (!form) return;
@@ -9,6 +9,7 @@ document.addEventListener("DOMContentLoaded", () => {
     ["titolo", "titoloHint"],
     ["descrizione_breve", "breveHint"],
     ["descrizione_lunga", "lungaHint"],
+    ["categoria_id", "catHint"],
     ["data_evento", "dataHint"],
     ["luogo", "luogoHint"],
     ["prezzo", "prezzoHint"],
@@ -16,21 +17,39 @@ document.addEventListener("DOMContentLoaded", () => {
     ["latitudine", "latHint"],
     ["longitudine", "lonHint"],
     ["immagine", "imgHint"],
+    ["btn-geo-evento", "geoHint"],
   ];
 
   function clearHints() {
-    fields.forEach(([_, hintId]) => {
+    fields.forEach(([inputId, hintId]) => {
       const hint = $(hintId);
+      const input = $(inputId);
       if (hint) hint.textContent = "";
+      if (input && input.classList) input.classList.remove("is-invalid");
     });
   }
 
   function setError(inputId, hintId, msg) {
     const input = $(inputId);
     const hint = $(hintId);
-    if (hint) hint.textContent = msg;
-    if (input) input.focus();
+    if (hint) {
+      hint.textContent = msg;
+      hint.classList.add("is-error");
+    }
+    if (input && input.classList) {
+      input.classList.add("is-invalid");
+      if (typeof input.focus === "function") input.focus();
+    }
   }
+  
+  function setInfo(hintId, msg) {
+    const hint = $(hintId);
+    if (hint) {
+      hint.textContent = msg;
+      hint.classList.remove("is-error");
+    }
+  }
+  
 
   function isNumberLike(v) {
     const x = String(v).replace(",", ".").trim();
@@ -38,6 +57,87 @@ document.addEventListener("DOMContentLoaded", () => {
     return !isNaN(x) && isFinite(Number(x));
   }
 
+  // ==========================
+  // 1) EVENTO INFORMATIVO:
+  // posti vuoto => prenotazione disattiva
+  // ==========================
+  const postiInput = $("posti_totali");
+  const prenCheck = $("prenotazione_obbligatoria");
+
+  function syncPrenotazioneToPosti() {
+    if (!postiInput || !prenCheck) return;
+
+    const postiRaw = postiInput.value.trim();
+
+    if (postiRaw === "") {
+      // Evento informativo
+      prenCheck.checked = false;
+      prenCheck.disabled = true;
+      setInfo("postiHint", "Evento informativo: senza posti → prenotazione disattivata.");
+    } else {
+      prenCheck.disabled = false;
+      setInfo("postiHint", "Inserisci un intero > 0 oppure lascia vuoto (evento informativo).");
+    }
+  }
+
+  syncPrenotazioneToPosti();
+  postiInput?.addEventListener("input", syncPrenotazioneToPosti);
+  postiInput?.addEventListener("change", syncPrenotazioneToPosti);
+
+  // ==========================
+  // 2) GEOLOCATION BUTTON:
+  // click => compila lat/lon
+  // ==========================
+  const geoBtn = $("btn-geo-evento");
+  const latEl = $("latitudine");
+  const lonEl = $("longitudine");
+
+  function setGeoMsg(msg, isError = false) {
+    const hint = $("geoHint");
+    if (hint) hint.textContent = msg;
+
+    // evidenzia lat/lon se errore
+    if (latEl && lonEl) {
+      if (isError) {
+        latEl.classList.add("is-invalid");
+        lonEl.classList.add("is-invalid");
+      } else {
+        latEl.classList.remove("is-invalid");
+        lonEl.classList.remove("is-invalid");
+      }
+    }
+  }
+
+  geoBtn?.addEventListener("click", () => {
+    setGeoMsg("");
+
+    if (!navigator.geolocation) {
+      setGeoMsg("Geolocalizzazione non supportata dal browser.", true);
+      return;
+    }
+
+    setGeoMsg("Richiesta posizione…");
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = pos.coords.latitude;
+        const lon = pos.coords.longitude;
+
+        if (latEl) latEl.value = String(lat.toFixed(6));
+        if (lonEl) lonEl.value = String(lon.toFixed(6));
+
+        setGeoMsg("Posizione inserita ✅");
+      },
+      () => {
+        setGeoMsg("Permesso posizione negato o non disponibile.", true);
+      },
+      { enableHighAccuracy: true, timeout: 8000 }
+    );
+  });
+
+  // ==========================
+  // 3) VALIDAZIONE SUBMIT
+  // ==========================
   form.addEventListener("submit", (e) => {
     clearHints();
 
@@ -52,10 +152,15 @@ document.addEventListener("DOMContentLoaded", () => {
     const lunga = $("descrizione_lunga").value.trim();
     if (!lunga) return e.preventDefault(), setError("descrizione_lunga", "lungaHint", "Inserisci la descrizione lunga.");
 
+    const cat = $("categoria_id")?.value.trim() ?? "";
+    if (!cat) return e.preventDefault(), setError("categoria_id", "catHint", "Seleziona una categoria.");
+
     const dataEvento = $("data_evento").value.trim();
     if (!dataEvento) return e.preventDefault(), setError("data_evento", "dataHint", "Inserisci data e ora.");
     const dt = new Date(dataEvento);
     if (isNaN(dt.getTime())) return e.preventDefault(), setError("data_evento", "dataHint", "Data/ora non valida.");
+    const now = new Date();
+    if (dt <= now) return e.preventDefault(), setError("data_evento", "dataHint", "La data/ora deve essere futura.");
 
     const luogo = $("luogo").value.trim();
     if (!luogo) return e.preventDefault(), setError("luogo", "luogoHint", "Inserisci il luogo.");
@@ -63,12 +168,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const postiRaw = $("posti_totali").value.trim();
     if (postiRaw !== "") {
-    const posti = Number(postiRaw);
-    if (!Number.isInteger(posti) || posti <= 0) {
+      const posti = Number(postiRaw);
+      if (!Number.isInteger(posti) || posti <= 0) {
         return e.preventDefault(), setError("posti_totali", "postiHint", "Inserisci un intero > 0 oppure lascia vuoto.");
+      }
     }
-    }
-
 
     const prezzoRaw = $("prezzo").value.trim();
     if (prezzoRaw !== "") {

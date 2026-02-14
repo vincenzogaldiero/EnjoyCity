@@ -20,7 +20,7 @@ if (isset($_SESSION['ruolo']) && $_SESSION['ruolo'] === 'admin') {
     exit;
 }
 
-$user_id = (int)($_SESSION['user_id'] ?? 0);
+$user_id    = (int)($_SESSION['user_id'] ?? 0);
 $nomeUtente = (string)($_SESSION['nome_utente'] ?? 'Utente');
 
 function h($s)
@@ -39,86 +39,130 @@ $flash_err = isset($_GET['err']) ? (string)$_GET['err'] : '';
    ========================================= */
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
-    $action = $_POST['action'] ?? '';
+    $action = (string)($_POST['action'] ?? '');
 
-  // 1) Annulla prenotazione
-if ($action === 'annulla_prenotazione') {
+    // 1) Annulla prenotazione
+    if ($action === 'annulla_prenotazione') {
 
-    $id = $_POST['id_prenotazione'] ?? '';
-    $ok = '';
-    $err = '';
+        $id = (string)($_POST['id_prenotazione'] ?? '');
+        $err = '';
 
-    if (!ctype_digit($id)) {
-        $err = "Prenotazione non valida.";
+        if (!ctype_digit($id)) {
+            $err = "Prenotazione non valida.";
+            db_close($conn);
+            header("Location: " . base_url("dashboard.php?msg=&err=" . urlencode($err)));
+            exit;
+        }
+
+        $pren_id = (int)$id;
+
+        // TRANSAZIONE: delete + update contatore
+        pg_query($conn, "BEGIN");
+
+        // Recupero evento_id (e controllo ownership)
+        $sqlGet = "SELECT evento_id
+                   FROM prenotazioni
+                   WHERE id = $1 AND utente_id = $2
+                   LIMIT 1;";
+        $resGet = pg_query_params($conn, $sqlGet, [$pren_id, $user_id]);
+        $rowGet = $resGet ? pg_fetch_assoc($resGet) : null;
+
+        if (!$rowGet) {
+            pg_query($conn, "ROLLBACK");
+            $err = "Non è stato possibile annullare la prenotazione.";
+            db_close($conn);
+            header("Location: " . base_url("dashboard.php?msg=&err=" . urlencode($err)));
+            exit;
+        }
+
+        $evento_id = (int)$rowGet['evento_id'];
+
+        // Delete prenotazione
+        $sqlDel = "DELETE FROM prenotazioni WHERE id = $1 AND utente_id = $2;";
+        $resDel = pg_query_params($conn, $sqlDel, [$pren_id, $user_id]);
+
+        if (!$resDel || pg_affected_rows($resDel) <= 0) {
+            pg_query($conn, "ROLLBACK");
+            $err = "Non è stato possibile annullare la prenotazione.";
+            db_close($conn);
+            header("Location: " . base_url("dashboard.php?msg=&err=" . urlencode($err)));
+            exit;
+        }
+
+        // Ricalcolo e aggiorno eventi.posti_prenotati
+        $sqlUpd = "
+            UPDATE eventi
+            SET posti_prenotati = (
+                SELECT COALESCE(SUM(quantita), 0)
+                FROM prenotazioni
+                WHERE evento_id = $1
+            )
+            WHERE id = $1;
+        ";
+        $resUpd = pg_query_params($conn, $sqlUpd, [$evento_id]);
+
+        if (!$resUpd) {
+            pg_query($conn, "ROLLBACK");
+            $err = "Prenotazione annullata, ma errore aggiornamento posti.";
+            db_close($conn);
+            header("Location: " . base_url("dashboard.php?msg=&err=" . urlencode($err)));
+            exit;
+        }
+
+        pg_query($conn, "COMMIT");
+
+        $ok = "Prenotazione annullata con successo.";
         db_close($conn);
-        header("Location: " . base_url("dashboard.php?msg=&err=" . urlencode($err)));
+        header("Location: " . base_url("dashboard.php?msg=" . urlencode($ok) . "&err="));
         exit;
     }
 
-    $pren_id = (int)$id;
+    // 2) Invia recensione
+    if ($action === 'invia_recensione') {
+        $voto = (string)($_POST['voto'] ?? '');
+        $testo = trim((string)($_POST['testo'] ?? ''));
 
-    // TRANSAZIONE: delete + update contatore
-    pg_query($conn, "BEGIN");
+        $err = '';
+        $ok  = '';
 
-    // 1) Recupero evento_id (e controllo ownership)
-    $sqlGet = "SELECT evento_id
-               FROM prenotazioni
-               WHERE id = $1 AND utente_id = $2
-               LIMIT 1;";
-    $resGet = pg_query_params($conn, $sqlGet, [$pren_id, $user_id]);
-    $rowGet = $resGet ? pg_fetch_assoc($resGet) : null;
+        if (!ctype_digit($voto)) {
+            $err = "Seleziona un voto valido.";
+        } else {
+            $v = (int)$voto;
+            if ($v < 1 || $v > 5) $err = "Il voto deve essere tra 1 e 5.";
+        }
 
-    if (!$rowGet) {
-        pg_query($conn, "ROLLBACK");
-        $err = "Non è stato possibile annullare la prenotazione.";
+        if ($err === '' && mb_strlen($testo) < 10) {
+            $err = "Scrivi almeno 10 caratteri.";
+        }
+        if ($err === '' && mb_strlen($testo) > 250) {
+            $err = "Massimo 250 caratteri.";
+        }
+
+        if ($err !== '') {
+            db_close($conn);
+            header("Location: " . base_url("dashboard.php?msg=&err=" . urlencode($err) . "#recensioni"));
+            exit;
+        }
+
+        $sqlIns = "
+            INSERT INTO recensioni (utente_id, testo, voto, stato, data_recensione)
+            VALUES ($1, $2, $3, 'in_attesa', NOW());
+        ";
+        $resIns = pg_query_params($conn, $sqlIns, [$user_id, $testo, (int)$voto]);
+
+        if (!$resIns) {
+            $err = "Errore durante l'invio. Riprova.";
+            db_close($conn);
+            header("Location: " . base_url("dashboard.php?msg=&err=" . urlencode($err) . "#recensioni"));
+            exit;
+        }
+
+        $ok = "Recensione inviata! Sarà visibile dopo l’approvazione dell’admin.";
         db_close($conn);
-        header("Location: " . base_url("dashboard.php?msg=&err=" . urlencode($err)));
+        header("Location: " . base_url("dashboard.php?msg=" . urlencode($ok) . "&err=#recensioni"));
         exit;
     }
-
-    $evento_id = (int)$rowGet['evento_id'];
-
-    // 2) Delete prenotazione
-    $sqlDel = "DELETE FROM prenotazioni
-               WHERE id = $1 AND utente_id = $2;";
-    $resDel = pg_query_params($conn, $sqlDel, [$pren_id, $user_id]);
-
-    if (!$resDel || pg_affected_rows($resDel) <= 0) {
-        pg_query($conn, "ROLLBACK");
-        $err = "Non è stato possibile annullare la prenotazione.";
-        db_close($conn);
-        header("Location: " . base_url("dashboard.php?msg=&err=" . urlencode($err)));
-        exit;
-    }
-
-    // 3) Ricalcolo e aggiorno eventi.posti_prenotati
-    $sqlUpd = "
-        UPDATE eventi
-        SET posti_prenotati = (
-            SELECT COALESCE(SUM(quantita), 0)
-            FROM prenotazioni
-            WHERE evento_id = $1
-        )
-        WHERE id = $1;
-    ";
-    $resUpd = pg_query_params($conn, $sqlUpd, [$evento_id]);
-
-    if (!$resUpd) {
-        pg_query($conn, "ROLLBACK");
-        $err = "Prenotazione annullata, ma errore aggiornamento posti.";
-        db_close($conn);
-        header("Location: " . base_url("dashboard.php?msg=&err=" . urlencode($err)));
-        exit;
-    }
-
-    pg_query($conn, "COMMIT");
-
-    $ok = "Prenotazione annullata con successo.";
-    db_close($conn);
-    header("Location: " . base_url("dashboard.php?msg=" . urlencode($ok) . "&err="));
-    exit;
-}
-
 }
 
 /* =========================================
@@ -157,7 +201,7 @@ if ($res) {
     while ($row = pg_fetch_assoc($res)) $categorie[] = $row;
 }
 
-// C) preferenze
+// C) preferenze (solo id)
 $prefs = [];
 $sql_pref = "
     SELECT categoria_id
@@ -170,57 +214,51 @@ if ($res) {
     while ($row = pg_fetch_assoc($res)) $prefs[] = (int)$row['categoria_id'];
 }
 
-// D) consigliati
+// D) scelti per te: SOLO preferenze (e non già prenotati)
 $consigliati = [];
 if (count($prefs) > 0) {
-    // costruisco IN ($1,$2,...) in modo sicuro
+
     $placeholders = [];
     $params = [];
-    foreach ($prefs as $i => $catId) {
-        $placeholders[] = '$' . ($i + 1);
+    $i = 1;
+
+    foreach ($prefs as $catId) {
+        $placeholders[] = '$' . $i;
         $params[] = $catId;
+        $i++;
     }
     $in = implode(',', $placeholders);
 
+    // parametro user_id per NOT EXISTS
+    $params[] = $user_id;
+    $uidPh = '$' . $i;
+
     $sql_rec = "
         SELECT
-            e.id          AS evento_id,
-            e.titolo      AS titolo,
-            e.luogo       AS luogo,
-            e.data_evento AS data_evento,
-            e.prezzo      AS prezzo,
+            e.id           AS evento_id,
+            e.titolo       AS titolo,
+            e.luogo        AS luogo,
+            e.data_evento  AS data_evento,
+            e.prezzo       AS prezzo,
             e.categoria_id AS categoria_id,
-            c.nome        AS categoria
+            c.nome         AS categoria
         FROM eventi e
         LEFT JOIN categorie c ON c.id = e.categoria_id
         WHERE e.stato = 'approvato'
           AND e.data_evento >= NOW()
           AND e.categoria_id IN ($in)
+          AND NOT EXISTS (
+              SELECT 1 FROM prenotazioni p
+              WHERE p.evento_id = e.id AND p.utente_id = $uidPh
+          )
         ORDER BY e.data_evento ASC
         LIMIT 8;
     ";
+
     $res = pg_query_params($conn, $sql_rec, $params);
-} else {
-    $sql_rec = "
-        SELECT
-            e.id          AS evento_id,
-            e.titolo      AS titolo,
-            e.luogo       AS luogo,
-            e.data_evento AS data_evento,
-            e.prezzo      AS prezzo,
-            e.categoria_id AS categoria_id,
-            c.nome        AS categoria
-        FROM eventi e
-        LEFT JOIN categorie c ON c.id = e.categoria_id
-        WHERE e.stato = 'approvato'
-          AND e.data_evento >= NOW()
-        ORDER BY e.data_evento DESC
-        LIMIT 8;
-    ";
-    $res = pg_query($conn, $sql_rec);
-}
-if ($res) {
-    while ($row = pg_fetch_assoc($res)) $consigliati[] = $row;
+    if ($res) {
+        while ($row = pg_fetch_assoc($res)) $consigliati[] = $row;
+    }
 }
 
 // E) recensioni approvate (preview)
@@ -277,12 +315,12 @@ $page_title = "Dashboard - EnjoyCity";
                     <?php
                     $prenId = (int)$e['prenotazione_id'];
                     $evId   = (int)$e['evento_id'];
-                    $dtISO  = date('c', strtotime($e['data_evento']));
+                    $dtISO  = date('c', strtotime((string)$e['data_evento']));
                     ?>
                     <article class="card" role="listitem">
                         <div class="card-top">
                             <span class="pill"><?= h($e['categoria'] ?? 'Categoria') ?></span>
-                            <span class="pill"><?= h(date('d/m/Y H:i', strtotime($e['data_evento']))) ?></span>
+                            <span class="pill"><?= h(date('d/m/Y H:i', strtotime((string)$e['data_evento']))) ?></span>
                         </div>
 
                         <h2 class="card-title"><?= h($e['titolo']) ?></h2>
@@ -291,7 +329,7 @@ $page_title = "Dashboard - EnjoyCity";
                         <p class="countdown" data-countdown="<?= h($dtISO) ?>">Caricamento countdown…</p>
 
                         <div class="card-actions">
-                            <a class="btn small" href="<?= base_url('dettaglio_evento.php?id=' . $evId) ?>">Dettagli</a>
+                            <a class="btn small" href="<?= base_url('evento.php?id=' . $evId) ?>">Dettagli</a>
 
                             <form action="<?= base_url('dashboard.php') ?>" method="post" class="inline" data-confirm="Vuoi davvero annullare questa prenotazione?">
                                 <input type="hidden" name="action" value="annulla_prenotazione">
@@ -305,35 +343,25 @@ $page_title = "Dashboard - EnjoyCity";
         <?php endif; ?>
     </section>
 
-    <!-- B) Ricerca -->
-    <section class="panel" aria-labelledby="h-cerca">
-        <header class="panel-head">
-            <h2 id="h-cerca">Cerca eventi</h2>
-            <p class="muted">Quando • Dove • Categoria</p>
-        </header>
+    <!-- B) Ricerca (UGUALE a index/eventi) -->
+    <section class="search-card" aria-label="Cerca eventi">
+        <form method="get" action="<?= base_url('eventi.php') ?>" class="search-grid" id="searchForm">
+            <input
+                class="input wide"
+                type="text"
+                name="q"
+                placeholder="Cerca per titolo, luogo, descrizione…"
+                aria-label="Cerca eventi">
 
-        <form id="searchForm" action="<?= base_url('eventi.php') ?>" method="get" class="searchbar">
-            <div class="field">
-                <label for="quando">Quando</label>
-                <input id="quando" name="quando" type="date">
-            </div>
+            <select name="categoria" aria-label="Categoria">
+                <option value="">Tutte le categorie</option>
+                <?php foreach ($categorie as $c): ?>
+                    <option value="<?= (int)$c['id'] ?>"><?= h($c['nome']) ?></option>
+                <?php endforeach; ?>
+            </select>
 
-            <div class="field">
-                <label for="dove">Dove</label>
-                <input id="dove" name="dove" type="text" placeholder="Es. Avellino, Montella…">
-            </div>
-
-            <div class="field">
-                <label for="categoria">Categoria</label>
-                <select id="categoria" name="categoria">
-                    <option value="">Tutte</option>
-                    <?php foreach ($categorie as $c): ?>
-                        <option value="<?= (int)$c['id'] ?>"><?= h($c['nome']) ?></option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
-
-            <button class="btn primary" type="submit">Cerca</button>
+            <button class="btn-search" type="submit">Cerca</button>
+            <a class="btn-search btn-reset" href="<?= base_url('eventi.php') ?>">Reset</a>
         </form>
     </section>
 
@@ -344,17 +372,21 @@ $page_title = "Dashboard - EnjoyCity";
                 <h2 id="h-scelti">Scelti per te</h2>
                 <p class="muted">
                     <?php if (count($prefs) > 0): ?>
-                        In base alle tue categorie di interesse.
+                        Solo eventi nelle tue categorie di interesse.
                     <?php else: ?>
-                        Imposta le categorie in Area personale per consigli più precisi.
+                        Imposta le categorie in Area personale per vedere consigli su misura.
                     <?php endif; ?>
                 </p>
             </div>
             <a class="btn" href="<?= base_url('area_personale.php') ?>">Area personale</a>
         </header>
 
-        <?php if (count($consigliati) === 0): ?>
-            <p class="muted">Nessun evento consigliato al momento.</p>
+        <?php if (count($prefs) === 0): ?>
+            <div class="empty">
+                Non hai ancora impostato preferenze. Vai in <strong>Area personale</strong> e scegli le categorie che ti interessano.
+            </div>
+        <?php elseif (count($consigliati) === 0): ?>
+            <p class="muted">Nessun evento disponibile nelle tue categorie (o li hai già prenotati).</p>
         <?php else: ?>
             <div class="grid cards" role="list">
                 <?php foreach ($consigliati as $e): ?>
@@ -362,16 +394,16 @@ $page_title = "Dashboard - EnjoyCity";
                     <article class="card" role="listitem">
                         <div class="card-top">
                             <span class="pill"><?= h($e['categoria'] ?? 'Categoria') ?></span>
-                            <span class="pill"><?= h(date('d/m/Y H:i', strtotime($e['data_evento']))) ?></span>
+                            <span class="pill"><?= h(date('d/m/Y H:i', strtotime((string)$e['data_evento']))) ?></span>
                         </div>
 
                         <h3 class="card-title"><?= h($e['titolo']) ?></h3>
                         <p class="card-meta muted">
-                            <?= h($e['luogo']) ?> • €<?= h(number_format((float)$e['prezzo'], 2, ',', '.')) ?>
+                            <?= h($e['luogo']) ?> • <?= ((float)$e['prezzo'] <= 0) ? 'Gratis' : '€' . h(number_format((float)$e['prezzo'], 2, ',', '.')) ?>
                         </p>
 
                         <div class="card-actions">
-                            <a class="btn small" href="<?= base_url('dettaglio_evento.php?id=' . $evId) ?>">Dettagli</a>
+                            <a class="btn small" href="<?= base_url('evento.php?id=' . $evId) ?>">Dettagli</a>
                             <a class="btn small" href="<?= base_url('eventi.php?categoria=' . (int)$e['categoria_id']) ?>">Simili</a>
                         </div>
                     </article>
@@ -387,7 +419,7 @@ $page_title = "Dashboard - EnjoyCity";
                 <h2 id="h-recensioni">Recensioni sul sito</h2>
                 <p class="muted">La tua recensione sarà pubblicata dopo l’approvazione dell’admin.</p>
             </div>
-            <a class="btn" href="<?= base_url('dicono_di_noi.php') ?>">Dicono di noi</a>
+            <!-- tolto bottone "Dicono di noi" -->
         </header>
 
         <form id="reviewForm" class="review-form" action="<?= base_url('dashboard.php') ?>#recensioni" method="post" novalidate>
@@ -413,7 +445,7 @@ $page_title = "Dashboard - EnjoyCity";
                 </div>
             </div>
 
-            <button class="btn primary" type="submit">Invia recensione</button>
+            <button class="btn primary btn-wide" type="submit">Invia recensione</button>
         </form>
 
         <?php if (count($recensioni) === 0): ?>
@@ -432,7 +464,7 @@ $page_title = "Dashboard - EnjoyCity";
                             <span class="stars" aria-label="Voto <?= $voto ?> su 5"><?= h($stars) ?></span>
                         </header>
                         <p class="review-text"><?= h($r['testo']) ?></p>
-                        <p class="muted review-date"><?= h(date('d/m/Y', strtotime($r['data_recensione']))) ?></p>
+                        <p class="muted review-date"><?= h(date('d/m/Y', strtotime((string)$r['data_recensione']))) ?></p>
                     </article>
                 <?php endforeach; ?>
             </div>

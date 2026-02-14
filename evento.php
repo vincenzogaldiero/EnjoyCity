@@ -9,7 +9,8 @@ $user_id  = $_SESSION['user_id'] ?? null;
 
 $id = $_GET['id'] ?? '';
 if (!ctype_digit($id)) {
-  header("Location: eventi.php"); exit;
+  header("Location: eventi.php");
+  exit;
 }
 $evento_id = (int)$id;
 
@@ -52,7 +53,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   if (!$ev) {
     pg_query($conn, "ROLLBACK");
     $_SESSION['flash_error'] = "Evento non trovato.";
-    header("Location: eventi.php"); exit;
+    header("Location: eventi.php");
+    exit;
   }
 
   // Se non è obbligatoria e non ci sono posti limitati: prenotazione non necessaria
@@ -141,7 +143,8 @@ $evento = $res ? pg_fetch_assoc($res) : null;
 
 if (!$evento) {
   db_close($conn);
-  header("Location: eventi.php"); exit;
+  header("Location: eventi.php");
+  exit;
 }
 
 $page_title = "Evento - " . $evento['titolo'];
@@ -158,173 +161,176 @@ $pren_obbl = ($evento['prenotazione_obbligatoria'] === 't' || $evento['prenotazi
 ?>?>
 <!doctype html>
 <html lang="it">
+
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title><?= htmlspecialchars($page_title, ENT_QUOTES, 'UTF-8') ?></title>
   <link rel="stylesheet" href="assets/css/style.css">
 </head>
+
 <body>
 
-<?php require_once __DIR__ . '/includes/header.php'; ?>
+  <?php require_once __DIR__ . '/includes/header.php'; ?>
 
-<main class="container">
+  <main class="container">
 
-  <nav class="breadcrumb" aria-label="Percorso">
-    <a href="eventi.php">← Torna agli eventi</a>
-  </nav>
+    <nav class="breadcrumb" aria-label="Percorso">
+      <a href="eventi.php">← Torna agli eventi</a>
+    </nav>
 
-  <?php if (!empty($_SESSION['flash_error'])): ?>
-    <div class="alert alert-error" role="alert">
-      <?= htmlspecialchars((string)$_SESSION['flash_error'], ENT_QUOTES, 'UTF-8') ?>
-    </div>
-    <?php unset($_SESSION['flash_error']); ?>
-  <?php endif; ?>
+    <?php if (!empty($_SESSION['flash_error'])): ?>
+      <div class="alert alert-error" role="alert">
+        <?= htmlspecialchars((string)$_SESSION['flash_error'], ENT_QUOTES, 'UTF-8') ?>
+      </div>
+      <?php unset($_SESSION['flash_error']); ?>
+    <?php endif; ?>
 
-  <?php if (!empty($_SESSION['flash_success'])): ?>
-    <div class="alert alert-success" role="status">
-      <?= htmlspecialchars((string)$_SESSION['flash_success'], ENT_QUOTES, 'UTF-8') ?>
-    </div>
-    <?php unset($_SESSION['flash_success']); ?>
-  <?php endif; ?>
+    <?php if (!empty($_SESSION['flash_success'])): ?>
+      <div class="alert alert-success" role="status">
+        <?= htmlspecialchars((string)$_SESSION['flash_success'], ENT_QUOTES, 'UTF-8') ?>
+      </div>
+      <?php unset($_SESSION['flash_success']); ?>
+    <?php endif; ?>
 
-  <!-- HERO EVENTO -->
-  <section class="event-hero card">
-    <div class="event-hero-media">
-      <?php if ($logged && !empty($evento['immagine'])): ?>
-        <div class="card-img">
-          <div class="img-tags">
-            <span class="tag-overlay hot"><?= htmlspecialchars(($evento['categoria'] ?? 'Evento'), ENT_QUOTES, 'UTF-8') ?></span>
+    <!-- HERO EVENTO -->
+    <section class="event-hero card">
+      <div class="event-hero-media">
+        <?php if ($logged && !empty($evento['immagine'])): ?>
+          <div class="card-img">
+            <div class="img-tags">
+              <span class="tag-overlay hot"><?= htmlspecialchars(($evento['categoria'] ?? 'Evento'), ENT_QUOTES, 'UTF-8') ?></span>
+            </div>
+            <img
+              src="<?= htmlspecialchars((string)$evento['immagine'], ENT_QUOTES, 'UTF-8') ?>"
+              alt="Immagine evento: <?= htmlspecialchars((string)$evento['titolo'], ENT_QUOTES, 'UTF-8') ?>">
           </div>
-          <img
-            src="<?= htmlspecialchars((string)$evento['immagine'], ENT_QUOTES, 'UTF-8') ?>"
-            alt="Immagine evento: <?= htmlspecialchars((string)$evento['titolo'], ENT_QUOTES, 'UTF-8') ?>">
-        </div>
-      <?php else: ?>
-        <div class="card-img" aria-hidden="true">
-          <span class="muted">Immagine disponibile dopo l’accesso</span>
-        </div>
-      <?php endif; ?>
-    </div>
-
-    <div class="event-hero-body card-body">
-      <div class="tag-row">
-        <span class="tag cardtag">
-          <?= htmlspecialchars(($evento['categoria'] ?? 'Evento'), ENT_QUOTES, 'UTF-8') ?>
-        </span>
-
-        <?php if ((float)$evento['prezzo'] <= 0): ?>
-          <span class="tag cardtag free">Gratis</span>
         <?php else: ?>
-          <span class="tag cardtag book">
-            €<?= htmlspecialchars(number_format((float)$evento['prezzo'], 2, ',', '.'), ENT_QUOTES, 'UTF-8') ?>
-          </span>
-        <?php endif; ?>
-
-        <?php if (!empty($pren_obbl)): ?>
-          <span class="tag cardtag hot">Prenotazione</span>
+          <div class="card-img" aria-hidden="true">
+            <span class="muted">Immagine disponibile dopo l’accesso</span>
+          </div>
         <?php endif; ?>
       </div>
 
-      <h1><?= htmlspecialchars((string)$evento['titolo'], ENT_QUOTES, 'UTF-8') ?></h1>
+      <div class="event-hero-body card-body">
+        <div class="tag-row">
+          <span class="tag cardtag">
+            <?= htmlspecialchars(($evento['categoria'] ?? 'Evento'), ENT_QUOTES, 'UTF-8') ?>
+          </span>
 
-      <p class="meta">
-        <span class="pill">
-          <?= htmlspecialchars(date('d/m/Y H:i', strtotime((string)$evento['data_evento'])), ENT_QUOTES, 'UTF-8') ?>
-        </span>
-        <span class="pill"><?= htmlspecialchars((string)$evento['luogo'], ENT_QUOTES, 'UTF-8') ?></span>
+          <?php if ((float)$evento['prezzo'] <= 0): ?>
+            <span class="tag cardtag free">Gratis</span>
+          <?php else: ?>
+            <span class="tag cardtag book">
+              €<?= htmlspecialchars(number_format((float)$evento['prezzo'], 2, ',', '.'), ENT_QUOTES, 'UTF-8') ?>
+            </span>
+          <?php endif; ?>
 
-        <?php if ($posti_residui !== null): ?>
+          <?php if (!empty($pren_obbl)): ?>
+            <span class="tag cardtag hot">Prenotazione</span>
+          <?php endif; ?>
+        </div>
+
+        <h1><?= htmlspecialchars((string)$evento['titolo'], ENT_QUOTES, 'UTF-8') ?></h1>
+
+        <p class="meta">
           <span class="pill">
-            Disponibili: <strong><?= (int)$posti_residui ?></strong> / <?= (int)$evento['posti_totali'] ?>
+            <?= htmlspecialchars(date('d/m/Y H:i', strtotime((string)$evento['data_evento'])), ENT_QUOTES, 'UTF-8') ?>
           </span>
-        <?php endif; ?>
-      </p>
+          <span class="pill"><?= htmlspecialchars((string)$evento['luogo'], ENT_QUOTES, 'UTF-8') ?></span>
 
-      <p class="desc">
-        <?= htmlspecialchars((string)$evento['descrizione_breve'], ENT_QUOTES, 'UTF-8') ?>
-      </p>
+          <?php if ($posti_residui !== null): ?>
+            <span class="pill">
+              Disponibili: <strong><?= (int)$posti_residui ?></strong> / <?= (int)$evento['posti_totali'] ?>
+            </span>
+          <?php endif; ?>
+        </p>
 
-      <?php if (!$logged): ?>
-        <div class="empty">
-          <strong>Per vedere i dettagli completi accedi.</strong><br>
-          Foto, descrizione completa e prenotazione sono disponibili per gli utenti registrati.
-        </div>
-        <a class="cta-login" href="login.php">Accedi <small>per saperne di più</small></a>
-      <?php endif; ?>
-    </div>
-  </section>
-
-  <!-- LAYOUT 2 COLONNE -->
-  <section class="event-layout" aria-label="Dettagli e prenotazione">
-    <!-- DETTAGLI -->
-    <article class="card">
-      <div class="card-body">
-        <h2>Dettagli</h2>
+        <p class="desc">
+          <?= htmlspecialchars((string)$evento['descrizione_breve'], ENT_QUOTES, 'UTF-8') ?>
+        </p>
 
         <?php if (!$logged): ?>
-          <p class="muted">Accedi per visualizzare la descrizione completa.</p>
-        <?php else: ?>
-          <p class="desc">
-            <?= nl2br(htmlspecialchars((string)$evento['descrizione_lunga'], ENT_QUOTES, 'UTF-8')) ?>
-          </p>
+          <div class="empty">
+            <strong>Per vedere i dettagli completi accedi.</strong><br>
+            Foto, descrizione completa e prenotazione sono disponibili per gli utenti registrati.
+          </div>
+          <a class="cta-login" href="login.php">Accedi <small>per saperne di più</small></a>
         <?php endif; ?>
       </div>
-    </article>
+    </section>
 
-    <!-- PRENOTAZIONE -->
-    <aside class="card" aria-label="Box prenotazione">
-      <div class="card-body">
-        <h2>Prenota</h2>
+    <!-- LAYOUT 2 COLONNE -->
+    <section class="event-layout" aria-label="Dettagli e prenotazione">
+      <!-- DETTAGLI -->
+      <article class="card">
+        <div class="card-body">
+          <h2>Dettagli</h2>
 
-        <?php if (!$logged): ?>
-          <p class="muted">Accedi per prenotare.</p>
-          <a class="cta-login" href="login.php">Accedi <small>per prenotare</small></a>
+          <?php if (!$logged): ?>
+            <p class="muted">Accedi per visualizzare la descrizione completa.</p>
+          <?php else: ?>
+            <p class="desc">
+              <?= nl2br(htmlspecialchars((string)$evento['descrizione_lunga'], ENT_QUOTES, 'UTF-8')) ?>
+            </p>
+          <?php endif; ?>
+        </div>
+      </article>
 
-        <?php else: ?>
-          <?php
+      <!-- PRENOTAZIONE -->
+      <aside class="card" aria-label="Box prenotazione">
+        <div class="card-body">
+          <h2>Prenota</h2>
+
+          <?php if (!$logged): ?>
+            <p class="muted">Accedi per prenotare.</p>
+            <a class="cta-login" href="login.php">Accedi <small>per prenotare</small></a>
+
+          <?php else: ?>
+            <?php
             // Prenotazione SOLO se ci sono posti e costo > 0
             $prenotabile = (
               $evento['posti_totali'] !== null && $evento['posti_totali'] !== '' &&
               (float)$evento['prezzo'] > 0
             );
-          ?>
+            ?>
 
-          <?php if (!$prenotabile): ?>
-            <p class="muted">Prenotazione non disponibile per questo evento.</p>
-            <p class="desc">La prenotazione è prevista solo per eventi con posti limitati e costo.</p>
+            <?php if (!$prenotabile): ?>
+              <p class="muted">Prenotazione non disponibile per questo evento.</p>
+              <p class="desc">La prenotazione è prevista solo per eventi con posti limitati e costo.</p>
 
-          <?php else: ?>
-            <?php if ($posti_residui !== null && $posti_residui <= 0): ?>
-              <div class="alert alert-error" role="alert">Evento sold-out.</div>
             <?php else: ?>
-              <form id="bookingForm" class="auth-form" method="post" action="" novalidate>
-                <div class="field">
-                  <label for="quantita">Numero biglietti (1–10)</label>
-                  <input id="quantita" name="quantita" type="number" min="1" max="10" required>
-                  <small class="hint" id="quantitaHint"></small>
-                </div>
+              <?php if ($posti_residui !== null && $posti_residui <= 0): ?>
+                <div class="alert alert-error" role="alert">Evento sold-out.</div>
+              <?php else: ?>
+                <form id="bookingForm" class="auth-form" method="post" action="" novalidate>
+                  <div class="field">
+                    <label for="quantita">Numero biglietti (1–10)</label>
+                    <input id="quantita" name="quantita" type="number" min="1" max="10" required>
+                    <small class="hint" id="quantitaHint"></small>
+                  </div>
 
-                <button type="submit" class="btn-primary w-100">
-                  Prenota • €<?= htmlspecialchars(number_format((float)$evento['prezzo'], 2, ',', '.'), ENT_QUOTES, 'UTF-8') ?>
-                </button>
+                  <button type="submit" class="btn-primary w-100">
+                    Prenota • €<?= htmlspecialchars(number_format((float)$evento['prezzo'], 2, ',', '.'), ENT_QUOTES, 'UTF-8') ?>
+                  </button>
 
-                <?php if ($posti_residui !== null): ?>
-                  <p class="muted mt-8">Disponibili: <?= (int)$posti_residui ?></p>
-                <?php endif; ?>
-              </form>
+                  <?php if ($posti_residui !== null): ?>
+                    <p class="muted mt-8">Disponibili: <?= (int)$posti_residui ?></p>
+                  <?php endif; ?>
+                </form>
+              <?php endif; ?>
             <?php endif; ?>
           <?php endif; ?>
-        <?php endif; ?>
 
-      </div>
-    </aside>
-  </section>
+        </div>
+      </aside>
+    </section>
 
-</main>
+  </main>
 
-<script src="assets/js/evento.js"></script>
-<?php require_once __DIR__ . '/includes/footer.php'; ?>
+  <script src="assets/js/evento.js"></script>
+  <?php require_once __DIR__ . '/includes/footer.php'; ?>
 
 </body>
+
 </html>
