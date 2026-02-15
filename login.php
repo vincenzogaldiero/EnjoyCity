@@ -1,5 +1,5 @@
 <?php
-// login.php
+// FILE: login.php
 
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
@@ -7,15 +7,11 @@ error_reporting(E_ALL);
 
 require_once __DIR__ . '/includes/config.php';
 
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
+if (session_status() === PHP_SESSION_NONE) session_start();
 
 $page_title = "Accedi - EnjoyCity";
-
 $errore = "";
 
-// Connessione PG
 $conn = db_connect();
 
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
@@ -23,7 +19,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $email    = trim((string)($_POST['email'] ?? ''));
     $password = (string)($_POST['password'] ?? '');
 
-    // Validazioni lato server (sempre!)
     if ($email === '' || $password === '') {
         $errore = "Inserisci sia email che password.";
     } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
@@ -32,8 +27,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         $errore = "La password deve contenere almeno 8 caratteri.";
     } else {
 
-        // Cerca utente per email
-        $sql = "SELECT id, nome, email, password, ruolo, bloccato FROM utenti WHERE email = $1 LIMIT 1;";
+        $sql = "SELECT id, nome, email, password, ruolo, bloccato, bloccato_fino
+                FROM utenti
+                WHERE email = $1
+                LIMIT 1;";
         $res = pg_query_params($conn, $sql, [$email]);
 
         if ($res && pg_num_rows($res) === 1) {
@@ -41,24 +38,29 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
             if ($user && password_verify($password, (string)$user['password'])) {
 
-                if (!empty($user['bloccato']) && ($user['bloccato'] === 't' || $user['bloccato'] === true || $user['bloccato'] === '1')) {
-                    $errore = "Il tuo account è stato bloccato. Contatta l'amministratore.";
+                $uid = (int)$user['id'];
+                $block = user_is_blocked($conn, $uid);
+
+                if ($block['blocked']) {
+                    if (!empty($block['until'])) {
+                        $errore = "Account bloccato fino al " . date('d/m/Y H:i', strtotime($block['until'])) . ".";
+                    } else {
+                        $errore = "Il tuo account è stato bloccato. Contatta l'amministratore.";
+                    }
                 } else {
                     session_regenerate_id(true);
 
-                    // Sessioni coerenti con nav.php / dashboard
                     $_SESSION['logged']      = true;
-                    $_SESSION['user_id']     = (int)$user['id'];
+                    $_SESSION['user_id']     = $uid;
                     $_SESSION['nome_utente'] = (string)$user['nome'];
                     $_SESSION['ruolo']       = (string)$user['ruolo'];
 
-                    // Redirect
+                    db_close($conn);
+
                     if ($_SESSION['ruolo'] === 'admin') {
-                        db_close($conn);
-                        header("Location: " . base_url('admin_dashboard.php'));
+                        header("Location: " . base_url('admin/admin_dashboard.php'));
                         exit;
                     } else {
-                        db_close($conn);
                         header("Location: " . base_url('dashboard.php'));
                         exit;
                     }

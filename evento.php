@@ -1,33 +1,59 @@
 <?php
+// FILE: evento.php
+// Dettaglio evento + prenotazione (solo utenti loggati, non bloccati)
+
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+
 require_once __DIR__ . '/includes/config.php';
 if (session_status() === PHP_SESSION_NONE) session_start();
 
 $conn = db_connect();
 
-$logged   = isset($_SESSION['logged']) && $_SESSION['logged'] === true;
-$user_id  = $_SESSION['user_id'] ?? null;
+$logged  = isset($_SESSION['logged']) && $_SESSION['logged'] === true;
+$user_id = isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : null;
 
+/* =========================================================
+   1) ID EVENTO (GET)
+========================================================= */
 $id = $_GET['id'] ?? '';
-if (!ctype_digit($id)) {
+if (!ctype_digit((string)$id)) {
+  db_close($conn);
   header("Location: eventi.php");
   exit;
 }
 $evento_id = (int)$id;
 
-/* -----------------------------
-   PRENOTAZIONE (POST)
------------------------------ */
+/* =========================================================
+   2) PRENOTAZIONE (POST)
+========================================================= */
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
+  // 2.1 Login richiesto
   if (!$logged || $user_id === null) {
     $_SESSION['flash_error'] = "Devi accedere per prenotare.";
+    db_close($conn);
     header("Location: login.php");
     exit;
   }
 
+  // 2.2 Utente bloccato? (permanente o temporaneo)
+  $block = user_is_blocked($conn, $user_id);
+  if ($block['blocked']) {
+    $_SESSION['flash_error'] = !empty($block['until'])
+      ? ("Account bloccato fino al " . date('d/m/Y H:i', strtotime($block['until'])) . ".")
+      : "Account bloccato. Non puoi prenotare.";
+    db_close($conn);
+    header("Location: evento.php?id=" . urlencode((string)$evento_id));
+    exit;
+  }
+
+  // 2.3 Validazione quantità
   $quantita = $_POST['quantita'] ?? '';
   if (!ctype_digit((string)$quantita)) {
     $_SESSION['flash_error'] = "Quantità non valida.";
+    db_close($conn);
     header("Location: evento.php?id=" . urlencode((string)$evento_id));
     exit;
   }
@@ -35,108 +61,117 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $quantita = (int)$quantita;
   if ($quantita < 1 || $quantita > 10) {
     $_SESSION['flash_error'] = "Puoi prenotare da 1 a 10 posti.";
+    db_close($conn);
     header("Location: evento.php?id=" . urlencode((string)$evento_id));
     exit;
   }
 
-  // Transazione per evitare race sui posti
+  // 2.4 Transazione + lock per evitare race condition
   pg_query($conn, "BEGIN");
 
-  // Lock evento
-  $sqlEv = "SELECT id, posti_totali, prenotazione_obbligatoria
-            FROM eventi
-            WHERE id = $1 AND stato = 'approvato'
-            FOR UPDATE;";
+  // Lock riga evento (solo APPROVATO)
+  $sqlEv = "
+        SELECT id, prezzo, posti_totali, prenotazione_obbligatoria
+        FROM eventi
+        WHERE id = $1 AND stato = 'approvato'
+        FOR UPDATE;
+    ";
   $resEv = pg_query_params($conn, $sqlEv, [$evento_id]);
   $ev    = $resEv ? pg_fetch_assoc($resEv) : null;
 
   if (!$ev) {
     pg_query($conn, "ROLLBACK");
     $_SESSION['flash_error'] = "Evento non trovato.";
+    db_close($conn);
     header("Location: eventi.php");
     exit;
   }
 
-  // Se non è obbligatoria e non ci sono posti limitati: prenotazione non necessaria
-  // (se tu vuoi comunque permettere prenotazione anche quando non obbligatoria, dimmelo e la abilito)
-  $posti_totali = $ev['posti_totali']; // può essere NULL
-  $pren_obbl    = ($ev['prenotazione_obbligatoria'] === 't' || $ev['prenotazione_obbligatoria'] === true || $ev['prenotazione_obbligatoria'] === '1');
+  // 2.5 Regole prenotazione (coerenti col tuo DB)
+  // - nel tuo schema posti_totali è NOT NULL -> se è 0 è "informativo"
+  // - la tua UI prenota SOLO se posti > 0 e prezzo > 0
+  $posti_totali = (int)$ev['posti_totali'];
+  $prezzo       = (float)$ev['prezzo'];
 
-  if (($posti_totali === null || $posti_totali === '') && !$pren_obbl) {
+  if ($posti_totali <= 0) {
     pg_query($conn, "ROLLBACK");
-    $_SESSION['flash_error'] = "Evento informativo: prenotazione non necessaria.";
+    $_SESSION['flash_error'] = "Evento informativo: prenotazione non disponibile.";
+    db_close($conn);
     header("Location: evento.php?id=" . urlencode((string)$evento_id));
     exit;
   }
 
-  // Blocca doppia prenotazione (stesso utente stesso evento)
+  if ($prezzo <= 0) {
+    pg_query($conn, "ROLLBACK");
+    $_SESSION['flash_error'] = "Evento gratuito: prenotazione non disponibile.";
+    db_close($conn);
+    header("Location: evento.php?id=" . urlencode((string)$evento_id));
+    exit;
+  }
+
+  // 2.6 Blocca doppia prenotazione (stesso utente stesso evento)
   $sqlGia = "SELECT 1 FROM prenotazioni WHERE utente_id = $1 AND evento_id = $2 LIMIT 1;";
-  $resGia = pg_query_params($conn, $sqlGia, [(int)$user_id, $evento_id]);
+  $resGia = pg_query_params($conn, $sqlGia, [$user_id, $evento_id]);
   if ($resGia && pg_num_rows($resGia) > 0) {
     pg_query($conn, "ROLLBACK");
     $_SESSION['flash_error'] = "Hai già prenotato questo evento.";
+    db_close($conn);
     header("Location: evento.php?id=" . urlencode((string)$evento_id));
     exit;
   }
 
-  // Se ci sono posti limitati, controlla disponibilità
-  if ($posti_totali !== null && $posti_totali !== '') {
-    $posti_totali = (int)$posti_totali;
+  // 2.7 Calcolo posti prenotati reali (somma prenotazioni)
+  $sqlSum = "SELECT COALESCE(SUM(quantita), 0) AS prenotati FROM prenotazioni WHERE evento_id = $1;";
+  $resSum = pg_query_params($conn, $sqlSum, [$evento_id]);
+  $sumRow = $resSum ? pg_fetch_assoc($resSum) : ['prenotati' => 0];
+  $prenotati = (int)($sumRow['prenotati'] ?? 0);
 
-    $sqlSum = "SELECT COALESCE(SUM(quantita), 0) AS prenotati
-               FROM prenotazioni
-               WHERE evento_id = $1;";
-    $resSum = pg_query_params($conn, $sqlSum, [$evento_id]);
-    $sumRow = $resSum ? pg_fetch_assoc($resSum) : ['prenotati' => 0];
-    $prenotati = (int)($sumRow['prenotati'] ?? 0);
-
-    $disponibili = $posti_totali - $prenotati;
-    if ($quantita > $disponibili) {
-      pg_query($conn, "ROLLBACK");
-      $_SESSION['flash_error'] = "Posti insufficienti. Disponibili: {$disponibili}.";
-      header("Location: evento.php?id=" . urlencode((string)$evento_id));
-      exit;
-    }
+  $disponibili = $posti_totali - $prenotati;
+  if ($quantita > $disponibili) {
+    pg_query($conn, "ROLLBACK");
+    $_SESSION['flash_error'] = "Posti insufficienti. Disponibili: {$disponibili}.";
+    db_close($conn);
+    header("Location: evento.php?id=" . urlencode((string)$evento_id));
+    exit;
   }
 
-  // Inserisci prenotazione
-  $sqlIns = "INSERT INTO prenotazioni (utente_id, evento_id, quantita)
-             VALUES ($1, $2, $3);";
-  $okIns = pg_query_params($conn, $sqlIns, [(int)$user_id, $evento_id, $quantita]);
+  // 2.8 Inserimento prenotazione
+  $sqlIns = "INSERT INTO prenotazioni (utente_id, evento_id, quantita) VALUES ($1, $2, $3);";
+  $okIns  = pg_query_params($conn, $sqlIns, [$user_id, $evento_id, $quantita]);
 
   if (!$okIns) {
     pg_query($conn, "ROLLBACK");
     $_SESSION['flash_error'] = "Errore durante la prenotazione.";
+    db_close($conn);
     header("Location: evento.php?id=" . urlencode((string)$evento_id));
     exit;
   }
 
-  // Aggiorna posti_prenotati (campo di comodo)
+  // 2.9 Aggiorno campo di comodo posti_prenotati in eventi
   $sqlUpd = "
-    UPDATE eventi
-    SET posti_prenotati = (
-      SELECT COALESCE(SUM(quantita), 0) FROM prenotazioni WHERE evento_id = $1
-    )
-    WHERE id = $1;
-  ";
+        UPDATE eventi
+        SET posti_prenotati = (SELECT COALESCE(SUM(quantita), 0) FROM prenotazioni WHERE evento_id = $1)
+        WHERE id = $1;
+    ";
   pg_query_params($conn, $sqlUpd, [$evento_id]);
 
   pg_query($conn, "COMMIT");
 
   $_SESSION['flash_success'] = "Prenotazione effettuata!";
+  db_close($conn);
   header("Location: evento.php?id=" . urlencode((string)$evento_id));
   exit;
 }
 
-/* -----------------------------
-   DETTAGLI EVENTO (GET)
------------------------------ */
+/* =========================================================
+   3) DETTAGLI EVENTO (GET)
+========================================================= */
 $sql = "
-  SELECT e.*, c.nome AS categoria
-  FROM eventi e
-  LEFT JOIN categorie c ON c.id = e.categoria_id
-  WHERE e.id = $1 AND e.stato = 'approvato'
-  LIMIT 1;
+    SELECT e.*, c.nome AS categoria
+    FROM eventi e
+    LEFT JOIN categorie c ON c.id = e.categoria_id
+    WHERE e.id = $1 AND e.stato = 'approvato'
+    LIMIT 1;
 ";
 $res = pg_query_params($conn, $sql, [$evento_id]);
 $evento = $res ? pg_fetch_assoc($res) : null;
@@ -147,18 +182,45 @@ if (!$evento) {
   exit;
 }
 
-$page_title = "Evento - " . $evento['titolo'];
+$page_title = "Evento - " . (string)$evento['titolo'];
 
-// calcolo posti residui se limitati
+/* =========================================================
+   4) CALCOLI UI
+========================================================= */
+// posti residui: solo se posti_totali > 0
 $posti_residui = null;
-if ($evento['posti_totali'] !== null && $evento['posti_totali'] !== '') {
-  $posti_residui = (int)$evento['posti_totali'] - (int)($evento['posti_prenotati'] ?? 0);
+$postiTot = (int)($evento['posti_totali'] ?? 0);
+if ($postiTot > 0) {
+  $posti_residui = $postiTot - (int)($evento['posti_prenotati'] ?? 0);
   if ($posti_residui < 0) $posti_residui = 0;
 }
 
-// prenotazione obbligatoria?
-$pren_obbl = ($evento['prenotazione_obbligatoria'] === 't' || $evento['prenotazione_obbligatoria'] === true || $evento['prenotazione_obbligatoria'] === '1');
-?>?>
+// prenotazione obbligatoria (etichetta tag)
+$pren_obbl = (
+  ($evento['prenotazione_obbligatoria'] === 't') ||
+  ($evento['prenotazione_obbligatoria'] === true) ||
+  ($evento['prenotazione_obbligatoria'] === '1')
+);
+
+// controllo blocco per UI prenota (solo loggato)
+$user_blocked = false;
+$block_msg = '';
+if ($logged && $user_id !== null) {
+  $block = user_is_blocked($conn, $user_id);
+  if ($block['blocked']) {
+    $user_blocked = true;
+    $block_msg = !empty($block['until'])
+      ? "Il tuo account è bloccato fino al " . date('d/m/Y H:i', strtotime($block['until'])) . "."
+      : "Il tuo account è stato bloccato dall’amministratore.";
+  }
+}
+
+// regola UI: prenota solo se posti > 0 e prezzo > 0
+$prenotabile = ($postiTot > 0 && (float)$evento['prezzo'] > 0);
+
+// qui posso chiudere la connessione: per il render non serve più
+db_close($conn);
+?>
 <!doctype html>
 <html lang="it">
 
@@ -226,7 +288,7 @@ $pren_obbl = ($evento['prenotazione_obbligatoria'] === 't' || $evento['prenotazi
             </span>
           <?php endif; ?>
 
-          <?php if (!empty($pren_obbl)): ?>
+          <?php if ($pren_obbl): ?>
             <span class="tag cardtag hot">Prenotazione</span>
           <?php endif; ?>
         </div>
@@ -241,7 +303,7 @@ $pren_obbl = ($evento['prenotazione_obbligatoria'] === 't' || $evento['prenotazi
 
           <?php if ($posti_residui !== null): ?>
             <span class="pill">
-              Disponibili: <strong><?= (int)$posti_residui ?></strong> / <?= (int)$evento['posti_totali'] ?>
+              Disponibili: <strong><?= (int)$posti_residui ?></strong> / <?= (int)$postiTot ?>
             </span>
           <?php endif; ?>
         </p>
@@ -287,39 +349,38 @@ $pren_obbl = ($evento['prenotazione_obbligatoria'] === 't' || $evento['prenotazi
             <a class="cta-login" href="login.php">Accedi <small>per prenotare</small></a>
 
           <?php else: ?>
-            <?php
-            // Prenotazione SOLO se ci sono posti e costo > 0
-            $prenotabile = (
-              $evento['posti_totali'] !== null && $evento['posti_totali'] !== '' &&
-              (float)$evento['prezzo'] > 0
-            );
-            ?>
 
-            <?php if (!$prenotabile): ?>
+            <?php if ($user_blocked): ?>
+              <div class="alert alert-error" role="alert">
+                <?= htmlspecialchars($block_msg, ENT_QUOTES, 'UTF-8') ?>
+              </div>
+              <p class="muted">Non puoi effettuare prenotazioni finché il blocco è attivo.</p>
+
+            <?php elseif (!$prenotabile): ?>
               <p class="muted">Prenotazione non disponibile per questo evento.</p>
               <p class="desc">La prenotazione è prevista solo per eventi con posti limitati e costo.</p>
 
+            <?php elseif ($posti_residui !== null && $posti_residui <= 0): ?>
+              <div class="alert alert-error" role="alert">Evento sold-out.</div>
+
             <?php else: ?>
-              <?php if ($posti_residui !== null && $posti_residui <= 0): ?>
-                <div class="alert alert-error" role="alert">Evento sold-out.</div>
-              <?php else: ?>
-                <form id="bookingForm" class="auth-form" method="post" action="" novalidate>
-                  <div class="field">
-                    <label for="quantita">Numero biglietti (1–10)</label>
-                    <input id="quantita" name="quantita" type="number" min="1" max="10" required>
-                    <small class="hint" id="quantitaHint"></small>
-                  </div>
+              <form id="bookingForm" class="auth-form" method="post" action="" novalidate>
+                <div class="field">
+                  <label for="quantita">Numero biglietti (1–10)</label>
+                  <input id="quantita" name="quantita" type="number" min="1" max="10" required>
+                  <small class="hint" id="quantitaHint"></small>
+                </div>
 
-                  <button type="submit" class="btn-primary w-100">
-                    Prenota • €<?= htmlspecialchars(number_format((float)$evento['prezzo'], 2, ',', '.'), ENT_QUOTES, 'UTF-8') ?>
-                  </button>
+                <button type="submit" class="btn-primary w-100">
+                  Prenota • €<?= htmlspecialchars(number_format((float)$evento['prezzo'], 2, ',', '.'), ENT_QUOTES, 'UTF-8') ?>
+                </button>
 
-                  <?php if ($posti_residui !== null): ?>
-                    <p class="muted mt-8">Disponibili: <?= (int)$posti_residui ?></p>
-                  <?php endif; ?>
-                </form>
-              <?php endif; ?>
+                <?php if ($posti_residui !== null): ?>
+                  <p class="muted mt-8">Disponibili: <?= (int)$posti_residui ?></p>
+                <?php endif; ?>
+              </form>
             <?php endif; ?>
+
           <?php endif; ?>
 
         </div>

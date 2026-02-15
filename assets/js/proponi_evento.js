@@ -1,10 +1,22 @@
 // FILE: assets/js/proponi_evento.js
+// Validazioni client-side + UX prenotazione + geolocalizzazione.
+// NOTA: le validazioni server-side in PHP restano SEMPRE la fonte di verità.
+
 document.addEventListener("DOMContentLoaded", () => {
   const form = document.getElementById("formProponiEvento");
   if (!form) return;
 
+  // helper id -> element
   const $ = (id) => document.getElementById(id);
 
+  // campi principali
+  const postiInput = $("posti_totali");
+  const prenCheck = $("prenotazione_obbligatoria");
+  const geoBtn = $("btn-geo-evento");
+  const latEl = $("latitudine");
+  const lonEl = $("longitudine");
+
+  // elenco (inputId, hintId) usato per pulizia errori
   const fields = [
     ["titolo", "titoloHint"],
     ["descrizione_breve", "breveHint"],
@@ -20,6 +32,9 @@ document.addEventListener("DOMContentLoaded", () => {
     ["btn-geo-evento", "geoHint"],
   ];
 
+  /* =========================================================
+     1) HELPERS: errori e info
+  ========================================================= */
   function clearHints() {
     fields.forEach(([inputId, hintId]) => {
       const hint = $(hintId);
@@ -32,6 +47,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function setError(inputId, hintId, msg) {
     const input = $(inputId);
     const hint = $(hintId);
+
     if (hint) {
       hint.textContent = msg;
       hint.classList.add("is-error");
@@ -41,7 +57,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (typeof input.focus === "function") input.focus();
     }
   }
-  
+
   function setInfo(hintId, msg) {
     const hint = $(hintId);
     if (hint) {
@@ -49,7 +65,6 @@ document.addEventListener("DOMContentLoaded", () => {
       hint.classList.remove("is-error");
     }
   }
-  
 
   function isNumberLike(v) {
     const x = String(v).replace(",", ".").trim();
@@ -57,48 +72,63 @@ document.addEventListener("DOMContentLoaded", () => {
     return !isNaN(x) && isFinite(Number(x));
   }
 
-  // ==========================
-  // 1) EVENTO INFORMATIVO:
-  // posti vuoto => prenotazione disattiva
-  // ==========================
-  const postiInput = $("posti_totali");
-  const prenCheck = $("prenotazione_obbligatoria");
-
+  /* =========================================================
+     2) EVENTO INFORMATIVO:
+        - DB: posti_totali NOT NULL
+        - Regola progetto: vuoto oppure 0 => informativo
+        => prenotazione deve essere OFF
+  ========================================================= */
   function syncPrenotazioneToPosti() {
     if (!postiInput || !prenCheck) return;
 
-    const postiRaw = postiInput.value.trim();
+    const raw = postiInput.value.trim();
 
-    if (postiRaw === "") {
-      // Evento informativo
+    // vuoto => informativo
+    if (raw === "") {
       prenCheck.checked = false;
       prenCheck.disabled = true;
-      setInfo("postiHint", "Evento informativo: senza posti → prenotazione disattivata.");
-    } else {
-      prenCheck.disabled = false;
-      setInfo("postiHint", "Inserisci un intero > 0 oppure lascia vuoto (evento informativo).");
+      setInfo("postiHint", "Evento informativo: posti vuoti → prenotazione disattivata.");
+      return;
     }
+
+    // se compilato, deve essere intero >= 0
+    const n = Number(raw);
+
+    if (!Number.isInteger(n) || n < 0) {
+      // non blocco qui: lo farà submit, ma do feedback UX
+      prenCheck.checked = false;
+      prenCheck.disabled = true;
+      setInfo("postiHint", "Posti totali non validi. Inserisci un intero ≥ 0.");
+      return;
+    }
+
+    // 0 => informativo
+    if (n === 0) {
+      prenCheck.checked = false;
+      prenCheck.disabled = true;
+      setInfo("postiHint", "Evento informativo: posti 0 → prenotazione disattivata.");
+      return;
+    }
+
+    // n > 0 => prenotazione può essere attivata
+    prenCheck.disabled = false;
+    setInfo("postiHint", "Inserisci un intero ≥ 0. (0 o vuoto = evento informativo).");
   }
 
   syncPrenotazioneToPosti();
   postiInput?.addEventListener("input", syncPrenotazioneToPosti);
   postiInput?.addEventListener("change", syncPrenotazioneToPosti);
 
-  // ==========================
-  // 2) GEOLOCATION BUTTON:
-  // click => compila lat/lon
-  // ==========================
-  const geoBtn = $("btn-geo-evento");
-  const latEl = $("latitudine");
-  const lonEl = $("longitudine");
-
-  function setGeoMsg(msg, isError = false) {
+  /* =========================================================
+     3) GEOLOCATION BUTTON:
+        click => compila latitudine/longitudine
+  ========================================================= */
+  function setGeoMsg(msg, isErr = false) {
     const hint = $("geoHint");
     if (hint) hint.textContent = msg;
 
-    // evidenzia lat/lon se errore
     if (latEl && lonEl) {
-      if (isError) {
+      if (isErr) {
         latEl.classList.add("is-invalid");
         lonEl.classList.add("is-invalid");
       } else {
@@ -128,64 +158,66 @@ document.addEventListener("DOMContentLoaded", () => {
 
         setGeoMsg("Posizione inserita ✅");
       },
-      () => {
-        setGeoMsg("Permesso posizione negato o non disponibile.", true);
-      },
+      () => setGeoMsg("Permesso posizione negato o non disponibile.", true),
       { enableHighAccuracy: true, timeout: 8000 }
     );
   });
 
-  // ==========================
-  // 3) VALIDAZIONE SUBMIT
-  // ==========================
+  /* =========================================================
+     4) VALIDAZIONE SUBMIT (client-side)
+        - non sostituisce la validazione server-side
+  ========================================================= */
   form.addEventListener("submit", (e) => {
     clearHints();
 
-    const titolo = $("titolo").value.trim();
+    const titolo = $("titolo")?.value.trim() ?? "";
     if (!titolo) return e.preventDefault(), setError("titolo", "titoloHint", "Inserisci il titolo.");
     if (titolo.length > 100) return e.preventDefault(), setError("titolo", "titoloHint", "Max 100 caratteri.");
 
-    const breve = $("descrizione_breve").value.trim();
+    const breve = $("descrizione_breve")?.value.trim() ?? "";
     if (!breve) return e.preventDefault(), setError("descrizione_breve", "breveHint", "Inserisci la descrizione breve.");
     if (breve.length > 255) return e.preventDefault(), setError("descrizione_breve", "breveHint", "Max 255 caratteri.");
 
-    const lunga = $("descrizione_lunga").value.trim();
+    const lunga = $("descrizione_lunga")?.value.trim() ?? "";
     if (!lunga) return e.preventDefault(), setError("descrizione_lunga", "lungaHint", "Inserisci la descrizione lunga.");
 
     const cat = $("categoria_id")?.value.trim() ?? "";
     if (!cat) return e.preventDefault(), setError("categoria_id", "catHint", "Seleziona una categoria.");
 
-    const dataEvento = $("data_evento").value.trim();
+    const dataEvento = $("data_evento")?.value.trim() ?? "";
     if (!dataEvento) return e.preventDefault(), setError("data_evento", "dataHint", "Inserisci data e ora.");
     const dt = new Date(dataEvento);
     if (isNaN(dt.getTime())) return e.preventDefault(), setError("data_evento", "dataHint", "Data/ora non valida.");
-    const now = new Date();
-    if (dt <= now) return e.preventDefault(), setError("data_evento", "dataHint", "La data/ora deve essere futura.");
+    if (dt <= new Date()) return e.preventDefault(), setError("data_evento", "dataHint", "La data/ora deve essere futura.");
 
-    const luogo = $("luogo").value.trim();
+    const luogo = $("luogo")?.value.trim() ?? "";
     if (!luogo) return e.preventDefault(), setError("luogo", "luogoHint", "Inserisci il luogo.");
     if (luogo.length > 100) return e.preventDefault(), setError("luogo", "luogoHint", "Max 100 caratteri.");
 
-    const postiRaw = $("posti_totali").value.trim();
+    // posti_totali: vuoto ok; se compilato => intero >= 0
+    const postiRaw = $("posti_totali")?.value.trim() ?? "";
     if (postiRaw !== "") {
       const posti = Number(postiRaw);
-      if (!Number.isInteger(posti) || posti <= 0) {
-        return e.preventDefault(), setError("posti_totali", "postiHint", "Inserisci un intero > 0 oppure lascia vuoto.");
+      if (!Number.isInteger(posti) || posti < 0) {
+        return e.preventDefault(), setError("posti_totali", "postiHint", "Inserisci un intero ≥ 0 (0 = informativo).");
       }
     }
 
-    const prezzoRaw = $("prezzo").value.trim();
+    // prezzo: vuoto ok; se compilato => numero >= 0
+    const prezzoRaw = $("prezzo")?.value.trim() ?? "";
     if (prezzoRaw !== "") {
       if (!isNumberLike(prezzoRaw)) return e.preventDefault(), setError("prezzo", "prezzoHint", "Prezzo non valido.");
       const p = Number(prezzoRaw.replace(",", "."));
       if (p < 0) return e.preventDefault(), setError("prezzo", "prezzoHint", "Il prezzo non può essere negativo.");
     }
 
-    const latRaw = $("latitudine").value.trim();
-    const lonRaw = $("longitudine").value.trim();
+    // lat/lon: o entrambi vuoti, o entrambi compilati e validi
+    const latRaw = $("latitudine")?.value.trim() ?? "";
+    const lonRaw = $("longitudine")?.value.trim() ?? "";
 
     if ((latRaw !== "" && lonRaw === "") || (latRaw === "" && lonRaw !== "")) {
-      return e.preventDefault(), setError(latRaw ? "longitudine" : "latitudine", latRaw ? "lonHint" : "latHint", "Compila sia latitudine che longitudine.");
+      return e.preventDefault(),
+        setError(latRaw ? "longitudine" : "latitudine", latRaw ? "lonHint" : "latHint", "Compila sia latitudine che longitudine.");
     }
 
     if (latRaw !== "" && lonRaw !== "") {
@@ -198,6 +230,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (lon < -180 || lon > 180) return e.preventDefault(), setError("longitudine", "lonHint", "Range: -180 .. 180.");
     }
 
+    // immagine: opzionale, max 2MB, tipi consentiti
     const img = $("immagine");
     if (img && img.files && img.files.length === 1) {
       const f = img.files[0];

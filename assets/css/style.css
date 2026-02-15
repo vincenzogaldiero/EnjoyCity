@@ -240,7 +240,7 @@
   }  
 
   /* ==  DROPDOWN - "Il progetto" == */
-/* dropdown Il progetto (stessa logica dell'omino) */
+/* dropdown Il progetto */
 .dropdown{
     position: relative;
   }
@@ -1413,4 +1413,49 @@
      position:absolute; width:1px; height:1px; padding:0; margin:-1px;
      overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0;
    }
-   
+/* =========================
+   ADMIN BUTTON – PREMIUM
+========================= */
+
+.nav .btn-admin{
+  background: linear-gradient(135deg, #0f766e 0%, #064e3b 100%);
+  color:#fff;
+  border:1px solid rgba(255,255,255,.15);
+  box-shadow: 0 6px 18px rgba(0,0,0,.15);
+  transition: all .25s ease;
+  padding: 8px 14px;
+}
+
+.nav .btn-admin:hover{
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgba(0,0,0,.25);
+}
+
+/* layout interno */
+.nav .admin-btn-content{
+  display:inline-flex;
+  align-items:center;
+  gap:10px;
+}
+
+/* icona scudo */
+.nav .admin-icon{
+  width:18px;
+  height:18px;
+}
+
+/* nome admin */
+.nav .admin-name{
+  font-weight:600;
+  letter-spacing:.3px;
+}
+
+/* badge */
+.nav .admin-badge{
+  font-size:10px;
+  font-weight:800;
+  padding:3px 7px;
+  border-radius:999px;
+  background: rgba(255,255,255,.25);
+  letter-spacing:.6px;
+}
