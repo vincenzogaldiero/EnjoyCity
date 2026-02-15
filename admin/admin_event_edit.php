@@ -1,5 +1,17 @@
 <?php
+// =========================================================
 // FILE: admin/admin_event_edit.php
+// Scopo didattico:
+// - Form Admin per modifica evento
+// - Validazioni server-side (sempre!)
+// - Coerenza con lifecycle:
+//   - stato: approvato / in_attesa / rifiutato (moderazione)
+//   - stato_evento: attivo / annullato (lifecycle operativo)
+//   - archiviato: true/false (soft delete / storico)
+// - DB pulito per eventi informativi:
+//   - posti_totali = NULL => informativo (no prenotazioni)
+//   - posti_totali > 0    => a posti limitati
+// =========================================================
 
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
@@ -8,7 +20,9 @@ error_reporting(E_ALL);
 require_once __DIR__ . '/../includes/config.php';
 if (session_status() === PHP_SESSION_NONE) session_start();
 
-// SOLO ADMIN
+// =========================================================
+// 1) Guard: SOLO ADMIN
+// =========================================================
 if (!isset($_SESSION['logged']) || $_SESSION['logged'] !== true || ($_SESSION['ruolo'] ?? '') !== 'admin') {
     $_SESSION['flash_error'] = "Accesso non autorizzato.";
     header("Location: " . base_url('login.php'));
@@ -19,36 +33,50 @@ $page_title = "Modifica evento - Area Admin";
 
 $conn = db_connect();
 
+// ---------------------------------------------------------
+// Utility: boolean postgres ('t'/'f') -> bool
+// ---------------------------------------------------------
 function is_true_pg($v): bool
 {
     return ($v === 't' || $v === true || $v === '1' || $v === 1);
 }
 
-/* ID evento */
+// ---------------------------------------------------------
+// 2) ID evento (GET)
+// ---------------------------------------------------------
 $idRaw = $_GET['id'] ?? '';
 if (!ctype_digit((string)$idRaw)) {
     $_SESSION['flash_error'] = "ID evento non valido.";
+    db_close($conn);
     header("Location: " . base_url('admin/admin_eventi.php'));
     exit;
 }
 $event_id = (int)$idRaw;
 
-/* categorie */
+// ---------------------------------------------------------
+// 3) Categorie per select
+// ---------------------------------------------------------
 $categorie = [];
 $resCat = pg_query($conn, "SELECT id, nome FROM categorie ORDER BY nome;");
 if ($resCat) while ($row = pg_fetch_assoc($resCat)) $categorie[] = $row;
 
-/* evento */
+// ---------------------------------------------------------
+// 4) Carico evento
+// ---------------------------------------------------------
 $resEv = pg_query_params($conn, "SELECT * FROM eventi WHERE id = $1 LIMIT 1;", [$event_id]);
 $evento = $resEv ? pg_fetch_assoc($resEv) : null;
 
 if (!$evento) {
     $_SESSION['flash_error'] = "Evento non trovato.";
+    db_close($conn);
     header("Location: " . base_url('admin/admin_eventi.php'));
     exit;
 }
 
-/* sticky */
+// ---------------------------------------------------------
+// 5) Valori "sticky" (precompilati)
+// - NB: posti_totali NULL => informativo => campo vuoto nel form
+// ---------------------------------------------------------
 $val = [
     'titolo' => (string)($evento['titolo'] ?? ''),
     'descrizione_breve' => (string)($evento['descrizione_breve'] ?? ''),
@@ -59,9 +87,16 @@ $val = [
     'latitudine' => ($evento['latitudine'] === null ? '' : (string)$evento['latitudine']),
     'longitudine' => ($evento['longitudine'] === null ? '' : (string)$evento['longitudine']),
     'prezzo' => (string)($evento['prezzo'] ?? '0.00'),
-    'posti_totali' => (string)($evento['posti_totali'] ?? '0'),
+
+    // DB pulito: NULL => informativo => mostro vuoto
+    'posti_totali' => ($evento['posti_totali'] === null ? '' : (string)$evento['posti_totali']),
+
     'prenotazione_obbligatoria' => is_true_pg($evento['prenotazione_obbligatoria'] ?? false) ? '1' : '0',
     'stato' => (string)($evento['stato'] ?? 'in_attesa'),
+
+    // lifecycle extra
+    'stato_evento' => (string)($evento['stato_evento'] ?? 'attivo'),
+    'archiviato' => is_true_pg($evento['archiviato'] ?? false) ? '1' : '0',
 ];
 
 // timestamp -> datetime-local
@@ -69,27 +104,37 @@ $ts = (string)($evento['data_evento'] ?? '');
 $t = strtotime($ts);
 $val['data_evento'] = $t ? date('Y-m-d\TH:i', $t) : '';
 
-$errore = "";
-$successo = "";
-
 // immagine attuale
 $imgOld = (string)($evento['immagine'] ?? '');
 
-/* POST update */
+$errore = "";
+
+// ---------------------------------------------------------
+// 6) POST update (validazioni + update DB)
+// ---------------------------------------------------------
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
+    // 6.1 aggiorno sticky values
     foreach ($val as $k => $_) {
         if (isset($_POST[$k])) $val[$k] = trim((string)$_POST[$k]);
     }
-    $val['prenotazione_obbligatoria'] = isset($_POST['prenotazione_obbligatoria']) ? '1' : '0';
 
+    // checkbox: se non presente => 0
+    $val['prenotazione_obbligatoria'] = isset($_POST['prenotazione_obbligatoria']) ? '1' : '0';
+    $val['archiviato'] = isset($_POST['archiviato']) ? '1' : '0';
+
+    // 6.2 estrazione
     $titolo = $val['titolo'];
     $breve  = $val['descrizione_breve'];
     $lunga  = $val['descrizione_lunga'];
     $luogo  = $val['luogo'];
     $catRaw = $val['categoria_id'];
-    $stato  = $val['stato'];
 
+    $stato  = $val['stato'];              // moderazione
+    $stato_evento = $val['stato_evento']; // lifecycle
+    $archiviato = ($val['archiviato'] === '1');
+
+    // 6.3 validazioni testi e select
     if ($titolo === '' || $breve === '' || $lunga === '' || $val['data_evento'] === '' || $luogo === '' || $catRaw === '' || $stato === '') {
         $errore = "Compila tutti i campi obbligatori (inclusa categoria e stato).";
     } elseif (mb_strlen($titolo) > 100) {
@@ -102,9 +147,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errore = "Categoria non valida.";
     } elseif (!in_array($stato, ['approvato', 'in_attesa', 'rifiutato'], true)) {
         $errore = "Stato non valido.";
+    } elseif (!in_array($stato_evento, ['attivo', 'annullato'], true)) {
+        $errore = "Stato evento non valido.";
     }
 
-    // categoria esiste
+    // 6.4 categoria esiste
     $categoria_id = null;
     if ($errore === '') {
         $categoria_id = (int)$catRaw;
@@ -112,7 +159,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!$resCheck || pg_num_rows($resCheck) !== 1) $errore = "Categoria non valida.";
     }
 
-    // data
+    // 6.5 data
     $dataSql = null;
     if ($errore === '') {
         $dataRaw = $val['data_evento'];
@@ -121,7 +168,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!$dt) $errore = "Data/ora evento non valida.";
     }
 
-    // prezzo
+    // 6.6 prezzo (decimal)
     $prezzo = '0.00';
     if ($errore === '') {
         $tmp = str_replace(',', '.', $val['prezzo']);
@@ -130,26 +177,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         else $prezzo = number_format((float)$tmp, 2, '.', '');
     }
 
-    // posti_totali (NOT NULL) -> se vuoto => 0
-    $postiTotali = 0;
+    // 6.7 posti_totali (DB pulito)
+    // - vuoto => NULL (informativo)
+    // - numero >= 0 => valido (0 lo trattiamo come informativo e lo convertiamo a NULL)
+    $postiTotali = null; // NULL => informativo
     if ($errore === '') {
-        if ($val['posti_totali'] !== '') {
-            if (!ctype_digit($val['posti_totali']) || (int)$val['posti_totali'] < 0) {
-                $errore = "Posti totali deve essere un intero >= 0 (0 = informativo).";
+        $raw = trim((string)$val['posti_totali']);
+
+        if ($raw === '') {
+            $postiTotali = null; // informativo
+        } else {
+            if (!ctype_digit($raw) || (int)$raw < 0) {
+                $errore = "Posti totali deve essere un intero >= 0. Lascia vuoto per evento informativo.";
             } else {
-                $postiTotali = (int)$val['posti_totali'];
+                $n = (int)$raw;
+                $postiTotali = ($n === 0) ? null : $n;
             }
         }
     }
 
-    // prenotazione obbligatoria coerente
+    // 6.8 prenotazione_obbligatoria coerente
+    // - se informativo => disattivo
     $pren_bool = ($val['prenotazione_obbligatoria'] === '1') ? 't' : 'f';
-    if ($postiTotali === 0) {
+    if ($postiTotali === null) {
         $pren_bool = 'f';
         $val['prenotazione_obbligatoria'] = '0';
     }
 
-    // lat/lon
+    // 6.9 lat/lon
     $lat = $val['latitudine'] !== '' ? str_replace(',', '.', $val['latitudine']) : null;
     $lon = $val['longitudine'] !== '' ? str_replace(',', '.', $val['longitudine']) : null;
 
@@ -171,7 +226,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    // immagine: se non carico => tengo vecchia
+    // 6.10 immagine:
+    // - se non carico nulla => tengo vecchia
+    // - se carico => valido formato, dimensione, sposto in uploads/eventi
     $imgPath = $imgOld;
 
     if ($errore === '' && isset($_FILES['immagine']) && $_FILES['immagine']['error'] !== UPLOAD_ERR_NO_FILE) {
@@ -208,8 +265,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     } else {
                         $imgPath = 'uploads/eventi/' . $filename;
 
-                        if ($imgOld !== '' && function_exists('str_starts_with') && str_starts_with($imgOld, 'uploads/eventi/')) {
-                            $oldAbs = __DIR__ . '/../' . $imgOld;
+                        // Cancello l'immagine vecchia (solo se era in uploads/eventi/)
+                        $oldRel = (string)$imgOld;
+                        if ($oldRel !== '' && strpos($oldRel, 'uploads/eventi/') === 0) {
+                            $oldAbs = __DIR__ . '/../' . $oldRel;
                             if (is_file($oldAbs)) @unlink($oldAbs);
                         }
                     }
@@ -218,7 +277,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    // UPDATE
+    // 6.11 UPDATE DB
     if ($errore === '') {
         $sql = "
             UPDATE eventi
@@ -234,8 +293,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 posti_totali = $10,
                 prenotazione_obbligatoria = $11,
                 categoria_id = $12,
-                stato = $13
-            WHERE id = $14
+                stato = $13,
+                stato_evento = $14,
+                archiviato = $15
+            WHERE id = $16
         ";
 
         $params = [
@@ -248,10 +309,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $latF,
             $lonF,
             (float)$prezzo,
-            $postiTotali,
+            $postiTotali,     // NULL => informativo
             $pren_bool,
             $categoria_id,
             $stato,
+            $stato_evento,
+            $archiviato,
             $event_id
         ];
 
@@ -260,6 +323,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!$resUp) {
             $errore = "Errore DB: " . pg_last_error($conn);
         } else {
+            // PRG: flash + redirect
             $_SESSION['flash_ok'] = "Evento aggiornato correttamente (ID: $event_id).";
             db_close($conn);
             header("Location: " . base_url("admin/admin_eventi.php"));
@@ -268,6 +332,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
+// chiusura connessione (render pagina)
 db_close($conn);
 
 require_once __DIR__ . '/../includes/admin_header.php';
@@ -276,7 +341,10 @@ require_once __DIR__ . '/../includes/admin_header.php';
 <section class="card">
     <header class="card-head">
         <h2>Modifica evento</h2>
-        <p class="muted">Evento ID: <?= (int)$event_id ?> • 0 posti = informativo.</p>
+        <p class="muted">
+            Evento ID: <?= (int)$event_id ?> •
+            <strong>Informativo</strong> = posti vuoti (NULL) → nessuna prenotazione.
+        </p>
     </header>
 
     <?php if ($errore !== ""): ?>
@@ -294,6 +362,11 @@ require_once __DIR__ . '/../includes/admin_header.php';
         </figure>
     <?php endif; ?>
 
+    <!-- =====================================================
+         FORM
+         - enctype multipart per upload immagine
+         - novalidate: JS facoltativo, ma server-side resta obbligatorio
+         ===================================================== -->
     <form id="formEditEvento" class="auth-form"
         action="<?= e(base_url('admin/admin_event_edit.php?id=' . $event_id)) ?>"
         method="POST" enctype="multipart/form-data" novalidate>
@@ -329,13 +402,37 @@ require_once __DIR__ . '/../includes/admin_header.php';
             <small class="hint" id="catHint"></small>
         </div>
 
+        <!-- Moderazione -->
         <div class="field">
-            <label for="stato">Stato *</label>
+            <label for="stato">Stato (moderazione) *</label>
             <select id="stato" name="stato" required>
                 <?php foreach (['approvato', 'in_attesa', 'rifiutato'] as $s): ?>
-                    <option value="<?= e($s) ?>" <?= ($val['stato'] === $s) ? 'selected' : '' ?>><?= e(ucfirst(str_replace('_', ' ', $s))) ?></option>
+                    <option value="<?= e($s) ?>" <?= ($val['stato'] === $s) ? 'selected' : '' ?>>
+                        <?= e(ucfirst(str_replace('_', ' ', $s))) ?>
+                    </option>
                 <?php endforeach; ?>
             </select>
+        </div>
+
+        <!-- Lifecycle operativo -->
+        <div class="field">
+            <label for="stato_evento">Stato evento (lifecycle) *</label>
+            <select id="stato_evento" name="stato_evento" required>
+                <?php foreach (['attivo', 'annullato'] as $s): ?>
+                    <option value="<?= e($s) ?>" <?= ($val['stato_evento'] === $s) ? 'selected' : '' ?>>
+                        <?= e(ucfirst($s)) ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+            <small class="hint">Se annullato: non compare nelle liste e non è prenotabile.</small>
+        </div>
+
+        <div class="field">
+            <label class="checkbox">
+                <input type="checkbox" id="archiviato" name="archiviato" <?= ($val['archiviato'] === '1') ? 'checked' : '' ?>>
+                Archiviato
+            </label>
+            <small class="hint">Se archiviato: resta nel DB per storico ma non appare nelle liste pubbliche.</small>
         </div>
 
         <div class="field">
@@ -356,20 +453,21 @@ require_once __DIR__ . '/../includes/admin_header.php';
             <small class="hint" id="prezzoHint">Lascia 0 per gratuito.</small>
         </div>
 
+        <!-- DB pulito: vuoto => NULL => informativo -->
         <div class="field">
             <label for="posti_totali">Posti totali</label>
-            <input type="number" id="posti_totali" name="posti_totali" min="0" value="<?= e($val['posti_totali']) ?>">
-            <small class="hint" id="postiHint">0 = evento informativo.</small>
+            <input type="number" id="posti_totali" name="posti_totali" min="0" value="<?= e($val['posti_totali']) ?>" placeholder="(vuoto = informativo)">
+            <small class="hint" id="postiHint">Lascia vuoto per evento informativo (posti_totali NULL).</small>
         </div>
 
         <div class="field">
             <label class="checkbox">
                 <input type="checkbox" id="prenotazione_obbligatoria" name="prenotazione_obbligatoria"
                     <?= ($val['prenotazione_obbligatoria'] === '1') ? 'checked' : '' ?>
-                    <?= ((int)$val['posti_totali'] === 0) ? 'disabled' : '' ?>>
+                    <?= ($val['posti_totali'] === '') ? 'disabled' : '' ?>>
                 Prenotazione obbligatoria
             </label>
-            <small class="hint">Se posti=0, prenotazione viene disattivata.</small>
+            <small class="hint">Se evento informativo (posti vuoti), prenotazione è disattivata.</small>
         </div>
 
         <div class="field">
@@ -398,6 +496,7 @@ require_once __DIR__ . '/../includes/admin_header.php';
     </form>
 </section>
 
+<!-- JS: usi il tuo script per geo + validazioni -->
 <script src="<?= e(base_url('assets/js/proponi_evento.js')) ?>"></script>
 
 <?php require_once __DIR__ . '/../includes/admin_footer.php'; ?>

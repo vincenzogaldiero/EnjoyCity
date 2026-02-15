@@ -55,6 +55,9 @@ $admin_name = trim((string)($_SESSION['nome'] ?? '')) ?: 'Admin';
 <html lang="it">
 
 <head>
+
+    <!-- Icona nella barra di ricerca (favicon) -->
+    <link rel="icon" type="image/png" href="<?php echo base_url('assets/img/logo.png'); ?>">
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="description" content="<?= e($page_desc) ?>">
@@ -81,10 +84,6 @@ $admin_name = trim((string)($_SESSION['nome'] ?? '')) ?: 'Admin';
             </a>
 
             <nav class="admin-top-actions" aria-label="Azioni admin">
-                <!-- Badge utente: mantiene lo stile “super” come bottone -->
-                <span class="btn btn-admin" style="cursor:default; pointer-events:none;">
-                    <?= e($admin_name) ?> <span class="admin-badge">ADMIN</span>
-                </span>
 
                 <a class="btn btn-ghost" href="<?= e(base_url('index.php')) ?>">Vai al sito</a>
                 <a class="btn btn-danger" href="<?= e(base_url('logout.php')) ?>"
