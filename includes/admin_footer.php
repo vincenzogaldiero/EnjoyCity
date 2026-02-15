@@ -7,8 +7,12 @@
     </div>
 </footer>
 
-<script src="<?= base_url('assets/js/script.js') ?>"></script>
-<script src="<?= base_url('assets/js/admin.js?v=1') ?>"></script>
+<!-- JS generali del sito -->
+<script defer src="<?= e(base_url('assets/js/script.js')) ?>"></script>
+
+<!-- JS admin (confirm submit, live filter su utenti, micro UX) -->
+<script defer src="<?= e(base_url('assets/js/admin.js?v=1')) ?>"></script>
+
 </body>
 
 </html>

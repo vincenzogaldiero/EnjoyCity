@@ -1,18 +1,18 @@
 <?php
 // FILE: includes/admin_header.php
-// Header unico per tutte le pagine admin:
-// - Guard: solo admin
-// - Topbar + Sidebar
-// - Include CSS admin
-// - Include JS admin (confirm, live filter, micro UX)
+// Scopo: Header unico per tutte le pagine admin
+// - Guard: accesso consentito solo agli ADMIN
+// - Layout: Topbar + Sidebar + Main container
+// - Include CSS base + CSS admin
+// Nota didattica: teniamo JS nel footer per performance e per evitare doppie inclusioni.
 
 if (session_status() === PHP_SESSION_NONE) session_start();
 
-require_once __DIR__ . '/config.php'; // base_url(), e(), ecc.
+require_once __DIR__ . '/config.php'; // base_url(), e(), fmt_datetime(), ecc.
 
-// -------------------------
-// Guard: SOLO ADMIN
-// -------------------------
+// =========================================================
+// 1) Guard: SOLO ADMIN
+// =========================================================
 $logged = isset($_SESSION['logged']) && $_SESSION['logged'] === true;
 $ruolo  = $_SESSION['ruolo'] ?? '';
 
@@ -22,20 +22,34 @@ if (!$logged || $ruolo !== 'admin') {
     exit;
 }
 
-// -------------------------
-// Meta pagina (fallback)
-// -------------------------
+// =========================================================
+// 2) Meta pagina (fallback)
+// =========================================================
 $page_desc  = $page_desc ?? "EnjoyCity - Area Admin";
 $page_title = $page_title ?? "Admin - EnjoyCity";
 
-// -------------------------
-// Link attivo (per evidenziare voce menu)
-// es: /enjoycity/admin/admin_eventi.php
-// -------------------------
+// =========================================================
+// 3) Helper compatibilità: ends_with (evita dipendenza PHP8)
+// =========================================================
+function ends_with(string $haystack, string $needle): bool
+{
+    if ($needle === '') return true;
+    $len = strlen($needle);
+    return substr($haystack, -$len) === $needle;
+}
+
+// =========================================================
+// 4) Evidenzia link attivo in sidebar
+// =========================================================
 $current = $_SERVER['SCRIPT_NAME'] ?? '';
 $active = function (string $path) use ($current): string {
-    return (str_ends_with($current, $path)) ? ' is-active' : '';
+    return (ends_with($current, $path)) ? ' is-active' : '';
 };
+
+// =========================================================
+// 5) Dati utente (badge topbar)
+// =========================================================
+$admin_name = trim((string)($_SESSION['nome'] ?? '')) ?: 'Admin';
 ?>
 <!doctype html>
 <html lang="it">
@@ -50,9 +64,6 @@ $active = function (string $path) use ($current): string {
     <link rel="stylesheet" href="<?= e(base_url('assets/css/style.css?v=99')) ?>">
     <!-- CSS ADMIN -->
     <link rel="stylesheet" href="<?= e(base_url('assets/css/admin.css?v=12')) ?>">
-
-    <!-- JS ADMIN (confirm, live filter, UX) -->
-    <script defer src="<?= e(base_url('assets/js/admin.js?v=1')) ?>"></script>
 </head>
 
 <body class="admin">
@@ -70,6 +81,11 @@ $active = function (string $path) use ($current): string {
             </a>
 
             <nav class="admin-top-actions" aria-label="Azioni admin">
+                <!-- Badge utente: mantiene lo stile “super” come bottone -->
+                <span class="btn btn-admin" style="cursor:default; pointer-events:none;">
+                    <?= e($admin_name) ?> <span class="admin-badge">ADMIN</span>
+                </span>
+
                 <a class="btn btn-ghost" href="<?= e(base_url('index.php')) ?>">Vai al sito</a>
                 <a class="btn btn-danger" href="<?= e(base_url('logout.php')) ?>"
                     data-confirm="Sei sicuro di voler uscire?">Logout</a>
@@ -86,7 +102,7 @@ $active = function (string $path) use ($current): string {
 
             <div class="admin-sep"></div>
 
-            <!-- Pagine pubbliche utili all'admin (contenuti del sito) -->
+            <!-- Pagine pubbliche utili all'admin -->
             <a class="admin-link<?= $active('/dicono_di_noi.php') ?>" href="<?= e(base_url('dicono_di_noi.php')) ?>">⭐ Dicono di noi</a>
             <a class="admin-link<?= $active('/faq.php') ?>" href="<?= e(base_url('faq.php')) ?>">❓ FAQ</a>
             <a class="admin-link<?= $active('/contatti.php') ?>" href="<?= e(base_url('contatti.php')) ?>">✉️ Contatti</a>

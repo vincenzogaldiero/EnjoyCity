@@ -44,5 +44,10 @@ if ($res) {
 
 db_close($conn);
 
-header("Location: " . base_url("admin/admin_dashboard.php"));
+// Redirect intelligente: torna alla pagina precedente se presente, altrimenti dashboard
+$back = $_SERVER['HTTP_REFERER'] ?? '';
+if ($back === '' || strpos($back, 'admin/') === false) {
+    $back = base_url("admin/admin_dashboard.php");
+}
+header("Location: " . $back);
 exit;

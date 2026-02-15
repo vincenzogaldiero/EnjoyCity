@@ -1,5 +1,10 @@
 <?php
-// FILE: admin/admin_eventi.php
+// FILE: admin/admin_event_add.php
+// Scopo: creazione evento da parte dell'admin (pubblicazione diretta)
+// - Validazioni server-side (sicurezza)
+// - Upload immagine opzionale (JPG/PNG/WEBP max 2MB)
+// - Posti totali NON obbligatori: 0 => evento informativo (prenotazioni disattivate)
+// - PRG: dopo INSERT redirect a admin_eventi.php con flash message
 
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
@@ -8,162 +13,357 @@ error_reporting(E_ALL);
 require_once __DIR__ . '/../includes/config.php';
 if (session_status() === PHP_SESSION_NONE) session_start();
 
-// SOLO ADMIN
+// =========================================================
+// 1) Guard: SOLO ADMIN
+// =========================================================
 if (!isset($_SESSION['logged']) || $_SESSION['logged'] !== true || ($_SESSION['ruolo'] ?? '') !== 'admin') {
     $_SESSION['flash_error'] = "Accesso non autorizzato.";
-    header("Location: " . base_url("admin/admin_eventi.php"));
+    header("Location: " . base_url("login.php"));
     exit;
 }
 
-$page_title = "Eventi - Area Admin";
-
+$page_title = "Aggiungi evento - Area Admin";
 $conn = db_connect();
 
-// flash
-$flash_ok    = $_SESSION['flash_ok'] ?? '';
-$flash_error = $_SESSION['flash_error'] ?? '';
-unset($_SESSION['flash_ok'], $_SESSION['flash_error']);
+// =========================================================
+// 2) Carico categorie (select)
+// =========================================================
+$categorie = [];
+$resCat = pg_query($conn, "SELECT id, nome FROM categorie ORDER BY nome;");
+if ($resCat) while ($row = pg_fetch_assoc($resCat)) $categorie[] = $row;
 
-// filtri (opzionali ma utili)
-$stato = trim((string)($_GET['stato'] ?? ''));
-$q     = trim((string)($_GET['q'] ?? ''));
+// =========================================================
+// 3) Valori “sticky” (se errore, non perdo input)
+// =========================================================
+$val = [
+    'titolo' => '',
+    'descrizione_breve' => '',
+    'descrizione_lunga' => '',
+    'data_evento' => '',
+    'luogo' => '',
+    'categoria_id' => '',
+    'latitudine' => '',
+    'longitudine' => '',
+    'prezzo' => '0.00',
+    'posti_totali' => '0',
+    'prenotazione_obbligatoria' => '0',
+    // Stato: admin pubblica direttamente -> approvato di default
+    'stato' => 'approvato'
+];
 
-$where = [];
-$params = [];
-$i = 1;
+$errore = "";
 
-if ($stato !== '') {
-    $where[] = "e.stato = $" . $i;
-    $params[] = $stato;
-    $i++;
+// =========================================================
+// 4) POST: INSERT evento
+// =========================================================
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+
+    foreach ($val as $k => $_) {
+        if (isset($_POST[$k])) $val[$k] = trim((string)$_POST[$k]);
+    }
+    $val['prenotazione_obbligatoria'] = isset($_POST['prenotazione_obbligatoria']) ? '1' : '0';
+
+    // ---- Validazioni base ----
+    $titolo = $val['titolo'];
+    $breve  = $val['descrizione_breve'];
+    $lunga  = $val['descrizione_lunga'];
+    $luogo  = $val['luogo'];
+    $catRaw = $val['categoria_id'];
+    $stato  = $val['stato'];
+
+    if ($titolo === '' || $breve === '' || $lunga === '' || $val['data_evento'] === '' || $luogo === '' || $catRaw === '' || $stato === '') {
+        $errore = "Compila tutti i campi obbligatori.";
+    } elseif (mb_strlen($titolo) > 100) {
+        $errore = "Il titolo può contenere al massimo 100 caratteri.";
+    } elseif (mb_strlen($breve) > 255) {
+        $errore = "La descrizione breve può contenere al massimo 255 caratteri.";
+    } elseif (mb_strlen($luogo) > 100) {
+        $errore = "Il luogo può contenere al massimo 100 caratteri.";
+    } elseif (!ctype_digit($catRaw)) {
+        $errore = "Categoria non valida.";
+    } elseif (!in_array($stato, ['approvato', 'in_attesa', 'rifiutato'], true)) {
+        $errore = "Stato non valido.";
+    }
+
+    // ---- Categoria esiste ----
+    $categoria_id = null;
+    if ($errore === '') {
+        $categoria_id = (int)$catRaw;
+        $resCheck = pg_query_params($conn, "SELECT 1 FROM categorie WHERE id = $1 LIMIT 1;", [$categoria_id]);
+        if (!$resCheck || pg_num_rows($resCheck) !== 1) $errore = "Categoria non valida.";
+    }
+
+    // ---- Data ----
+    $dataSql = null;
+    if ($errore === '') {
+        // input datetime-local: YYYY-MM-DDTHH:MM
+        $dataSql = str_replace('T', ' ', $val['data_evento']) . ':00';
+        $dt = DateTime::createFromFormat('Y-m-d H:i:s', $dataSql);
+        if (!$dt) $errore = "Data/ora evento non valida.";
+    }
+
+    // ---- Prezzo ----
+    $prezzo = '0.00';
+    if ($errore === '') {
+        $tmp = str_replace(',', '.', $val['prezzo']);
+        if ($tmp === '') $tmp = '0.00';
+        if (!is_numeric($tmp) || (float)$tmp < 0) $errore = "Prezzo non valido.";
+        else $prezzo = number_format((float)$tmp, 2, '.', '');
+    }
+
+    // ---- Posti totali (opzionale: se vuoto => 0) ----
+    $postiTotali = 0;
+    if ($errore === '') {
+        if ($val['posti_totali'] !== '') {
+            if (!ctype_digit($val['posti_totali']) || (int)$val['posti_totali'] < 0) {
+                $errore = "Posti totali deve essere un intero >= 0 (0 = informativo).";
+            } else {
+                $postiTotali = (int)$val['posti_totali'];
+            }
+        }
+    }
+
+    // ---- Prenotazione obbligatoria coerente ----
+    $pren_bool = ($val['prenotazione_obbligatoria'] === '1') ? 't' : 'f';
+    if ($postiTotali === 0) {
+        // Evento informativo: niente prenotazioni
+        $pren_bool = 'f';
+        $val['prenotazione_obbligatoria'] = '0';
+    }
+
+    // ---- Lat/Lon (opzionali, ma coerenti) ----
+    $lat = $val['latitudine'] !== '' ? str_replace(',', '.', $val['latitudine']) : null;
+    $lon = $val['longitudine'] !== '' ? str_replace(',', '.', $val['longitudine']) : null;
+
+    $latF = null;
+    $lonF = null;
+    if ($errore === '') {
+        if (($lat === null && $lon !== null) || ($lat !== null && $lon === null)) {
+            $errore = "Se inserisci la geolocalizzazione devi indicare sia latitudine che longitudine.";
+        } elseif ($lat !== null && $lon !== null) {
+            if (!is_numeric($lat) || !is_numeric($lon)) {
+                $errore = "Latitudine/Longitudine non valide.";
+            } else {
+                $latF = (float)$lat;
+                $lonF = (float)$lon;
+                if ($latF < -90 || $latF > 90 || $lonF < -180 || $lonF > 180) {
+                    $errore = "Latitudine tra -90 e 90, longitudine tra -180 e 180.";
+                }
+            }
+        }
+    }
+
+    // ---- Upload immagine (opzionale) ----
+    $imgPath = ''; // se non carico, resta vuoto
+    if ($errore === '' && isset($_FILES['immagine']) && $_FILES['immagine']['error'] !== UPLOAD_ERR_NO_FILE) {
+
+        if ($_FILES['immagine']['error'] !== UPLOAD_ERR_OK) {
+            $errore = "Errore nel caricamento dell'immagine.";
+        } else {
+            $tmpFile = $_FILES['immagine']['tmp_name'];
+            $size = (int)$_FILES['immagine']['size'];
+
+            if ($size > 2 * 1024 * 1024) {
+                $errore = "Immagine troppo grande (max 2MB).";
+            } else {
+                $finfo = new finfo(FILEINFO_MIME_TYPE);
+                $mime  = $finfo->file($tmpFile);
+
+                $allowed = [
+                    'image/jpeg' => 'jpg',
+                    'image/png'  => 'png',
+                    'image/webp' => 'webp'
+                ];
+
+                if (!isset($allowed[$mime])) {
+                    $errore = "Formato immagine non supportato (JPG/PNG/WEBP).";
+                } else {
+                    $ext = $allowed[$mime];
+                    $dir = __DIR__ . '/../uploads/eventi';
+                    if (!is_dir($dir)) mkdir($dir, 0755, true);
+
+                    $filename = 'ev_' . time() . '_' . bin2hex(random_bytes(6)) . '.' . $ext;
+                    $dest = $dir . '/' . $filename;
+
+                    if (!move_uploaded_file($tmpFile, $dest)) {
+                        $errore = "Impossibile salvare l'immagine caricata.";
+                    } else {
+                        $imgPath = 'uploads/eventi/' . $filename;
+                    }
+                }
+            }
+        }
+    }
+
+    // ---- INSERT ----
+    if ($errore === '') {
+
+        $sqlIns = "
+            INSERT INTO eventi
+                (titolo, descrizione_breve, descrizione_lunga, immagine,
+                 data_evento, luogo, latitudine, longitudine,
+                 prezzo, posti_totali, posti_prenotati,
+                 prenotazione_obbligatoria, categoria_id, stato)
+            VALUES
+                ($1,$2,$3,$4,
+                 $5,$6,$7,$8,
+                 $9,$10,0,
+                 $11,$12,$13)
+            RETURNING id;
+        ";
+
+        $params = [
+            $titolo,
+            $breve,
+            $lunga,
+            $imgPath,
+            $dataSql,
+            $luogo,
+            $latF,
+            $lonF,
+            (float)$prezzo,
+            $postiTotali,
+            $pren_bool,
+            $categoria_id,
+            $stato
+        ];
+
+        $resIns = pg_query_params($conn, $sqlIns, $params);
+        if (!$resIns) {
+            $errore = "Errore DB: " . pg_last_error($conn);
+        } else {
+            $row = pg_fetch_assoc($resIns);
+            $newId = (int)($row['id'] ?? 0);
+            $_SESSION['flash_ok'] = "Evento creato correttamente (ID: $newId).";
+            db_close($conn);
+            header("Location: " . base_url("admin/admin_eventi.php"));
+            exit;
+        }
+    }
 }
-if ($q !== '') {
-    $where[] = "(LOWER(e.titolo) LIKE LOWER($" . $i . ") OR LOWER(e.luogo) LIKE LOWER($" . $i . "))";
-    $params[] = '%' . $q . '%';
-    $i++;
-}
-
-$sql = "
-  SELECT e.id, e.titolo, e.data_evento, e.luogo,
-         e.prezzo, e.prenotazione_obbligatoria,
-         e.posti_totali, e.posti_prenotati,
-         e.stato,
-         c.nome AS categoria
-  FROM eventi e
-  LEFT JOIN categorie c ON c.id = e.categoria_id
-";
-if ($where) $sql .= " WHERE " . implode(" AND ", $where);
-$sql .= " ORDER BY e.data_evento DESC;";
-
-$res = $params ? pg_query_params($conn, $sql, $params) : pg_query($conn, $sql);
-if (!$res) die("Errore query eventi: " . pg_last_error($conn));
-
-$eventi = [];
-while ($r = pg_fetch_assoc($res)) $eventi[] = $r;
 
 db_close($conn);
 
 require_once __DIR__ . '/../includes/admin_header.php';
 ?>
 
-<?php if ($flash_ok): ?>
-    <div class="alert alert-success" role="status"><?= e($flash_ok) ?></div>
-<?php endif; ?>
-<?php if ($flash_error): ?>
-    <div class="alert alert-error" role="alert"><?= e($flash_error) ?></div>
-<?php endif; ?>
-
-<section class="card" aria-label="Aggiungi evento">
+<section class="card">
     <header class="card-head">
-        <h2>Gestione Eventi</h2>
-        <p class="muted">Puoi pubblicare subito un evento o modificare quelli già presenti.</p>
+        <h2>Aggiungi evento</h2>
+        <p class="muted">0 posti = evento informativo (prenotazioni disattivate).</p>
     </header>
 
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:10px;">
-        <p class="muted" style="margin:0;">Clicca qui per aggiungere un evento (pubblicazione diretta).</p>
-        <a class="btn btn-admin" href="<?= base_url('admin/admin_event_add.php') ?>">
-            <span class="admin-btn-content">➕ Aggiungi evento <span class="admin-badge">LIVE</span></span>
-        </a>
-    </div>
-</section>
+    <?php if ($errore !== ""): ?>
+        <div class="alert alert-error" role="alert"><?= e($errore) ?></div>
+    <?php endif; ?>
 
-<section class="card" aria-label="Filtri eventi">
-    <header class="card-head">
-        <h2>Filtri</h2>
-        <p class="muted">Cerca per titolo/luogo e filtra per stato.</p>
-    </header>
+    <form id="formAddEvento" class="auth-form"
+        action="<?= e(base_url('admin/admin_event_add.php')) ?>"
+        method="POST" enctype="multipart/form-data" novalidate>
 
-    <form method="get" action="<?= base_url('admin/admin_eventi.php') ?>" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;">
-        <div class="field" style="min-width:260px;flex:1;">
-            <label for="q">Cerca</label>
-            <input id="q" name="q" type="text" value="<?= e($q) ?>" placeholder="Titolo o luogo…">
+        <div class="field">
+            <label for="titolo">Titolo *</label>
+            <input type="text" id="titolo" name="titolo" maxlength="100" required value="<?= e($val['titolo']) ?>">
+            <small class="hint" id="titoloHint"></small>
         </div>
 
-        <div class="field" style="min-width:220px;">
-            <label for="stato">Stato</label>
-            <select id="stato" name="stato">
-                <option value="">Tutti</option>
-                <?php
-                $stati = ['approvato', 'in_attesa', 'rifiutato'];
-                foreach ($stati as $s) {
-                    $sel = ($stato === $s) ? 'selected' : '';
-                    echo '<option value="' . e($s) . '" ' . $sel . '>' . e(ucfirst(str_replace('_', ' ', $s))) . '</option>';
-                }
-                ?>
+        <div class="field">
+            <label for="descrizione_breve">Descrizione breve *</label>
+            <input type="text" id="descrizione_breve" name="descrizione_breve" maxlength="255" required value="<?= e($val['descrizione_breve']) ?>">
+            <small class="hint" id="breveHint"></small>
+        </div>
+
+        <div class="field">
+            <label for="descrizione_lunga">Descrizione lunga *</label>
+            <textarea id="descrizione_lunga" name="descrizione_lunga" rows="6" required><?= e($val['descrizione_lunga']) ?></textarea>
+            <small class="hint" id="lungaHint"></small>
+        </div>
+
+        <div class="field">
+            <label for="categoria_id">Categoria *</label>
+            <select id="categoria_id" name="categoria_id" required>
+                <option value="">Seleziona una categoria</option>
+                <?php foreach ($categorie as $c): $cid = (int)$c['id']; ?>
+                    <option value="<?= $cid ?>" <?= ((int)$val['categoria_id'] === $cid) ? 'selected' : '' ?>>
+                        <?= e($c['nome']) ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+            <small class="hint" id="catHint"></small>
+        </div>
+
+        <div class="field">
+            <label for="stato">Stato *</label>
+            <select id="stato" name="stato" required>
+                <?php foreach (['approvato', 'in_attesa', 'rifiutato'] as $s): ?>
+                    <option value="<?= e($s) ?>" <?= ($val['stato'] === $s) ? 'selected' : '' ?>>
+                        <?= e(ucfirst(str_replace('_', ' ', $s))) ?>
+                    </option>
+                <?php endforeach; ?>
             </select>
         </div>
 
-        <div style="display:flex;gap:10px;align-items:flex-end;">
-            <button class="btn" type="submit">Applica</button>
-            <a class="btn btn-ghost" href="<?= base_url('admin/admin_eventi.php') ?>">Reset</a>
+        <div class="field">
+            <label for="data_evento">Data e ora evento *</label>
+            <input type="datetime-local" id="data_evento" name="data_evento" required value="<?= e($val['data_evento']) ?>">
+            <small class="hint" id="dataHint"></small>
+        </div>
+
+        <div class="field">
+            <label for="luogo">Luogo *</label>
+            <input type="text" id="luogo" name="luogo" maxlength="100" required value="<?= e($val['luogo']) ?>">
+            <small class="hint" id="luogoHint"></small>
+        </div>
+
+        <div class="field">
+            <label for="prezzo">Prezzo (€)</label>
+            <input type="text" id="prezzo" name="prezzo" inputmode="decimal" value="<?= e($val['prezzo']) ?>" placeholder="0.00">
+            <small class="hint" id="prezzoHint">Lascia 0 per gratuito.</small>
+        </div>
+
+        <div class="field">
+            <label for="posti_totali">Posti totali</label>
+            <input type="number" id="posti_totali" name="posti_totali" min="0" value="<?= e($val['posti_totali']) ?>">
+            <small class="hint" id="postiHint">0 = evento informativo.</small>
+        </div>
+
+        <div class="field">
+            <label class="checkbox">
+                <input type="checkbox" id="prenotazione_obbligatoria" name="prenotazione_obbligatoria"
+                    <?= ($val['prenotazione_obbligatoria'] === '1') ? 'checked' : '' ?>
+                    <?= ((int)$val['posti_totali'] === 0) ? 'disabled' : '' ?>>
+                Prenotazione obbligatoria
+            </label>
+            <small class="hint">Se posti=0, prenotazione viene disattivata.</small>
+        </div>
+
+        <div class="field">
+            <label for="latitudine">Latitudine (opzionale)</label>
+            <input type="text" id="latitudine" name="latitudine" inputmode="decimal" value="<?= e($val['latitudine']) ?>">
+            <small class="hint" id="latHint"></small>
+        </div>
+
+        <div class="field">
+            <label for="longitudine">Longitudine (opzionale)</label>
+            <input type="text" id="longitudine" name="longitudine" inputmode="decimal" value="<?= e($val['longitudine']) ?>">
+            <button type="button" class="btn-search" id="btn-geo-evento" style="margin-top:6px;">Usa la mia posizione</button>
+            <small class="hint" id="geoHint"></small>
+        </div>
+
+        <div class="field">
+            <label for="immagine">Immagine (opzionale)</label>
+            <input type="file" id="immagine" name="immagine" accept=".jpg,.jpeg,.png,.webp">
+            <small class="hint" id="imgHint">JPG/PNG/WEBP — max 2MB.</small>
+        </div>
+
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;">
+            <button type="submit" class="btn btn-admin">Crea evento</button>
+            <a class="btn btn-ghost" href="<?= e(base_url('admin/admin_eventi.php')) ?>">Annulla</a>
         </div>
     </form>
 </section>
 
-<section class="card" aria-label="Elenco eventi">
-    <header class="card-head">
-        <h2>Eventi presenti</h2>
-        <p class="muted">“Informativo” = posti totali 0 (prenotazioni disattivate).</p>
-    </header>
-
-    <?php if (!$eventi): ?>
-        <p class="muted" style="margin-top:12px;">Nessun evento trovato.</p>
-    <?php else: ?>
-        <div class="list">
-            <?php foreach ($eventi as $ev): ?>
-                <?php
-                $postiTot = (int)($ev['posti_totali'] ?? 0);
-                $isInfo = ($postiTot === 0);
-                $st = (string)($ev['stato'] ?? '');
-                ?>
-                <article class="row">
-                    <div class="row-main">
-                        <h3 class="row-title"><?= e($ev['titolo']) ?></h3>
-                        <p class="row-meta">
-                            <?= e(fmt_datetime($ev['data_evento'])) ?> • <?= e($ev['luogo']) ?> • ID #<?= (int)$ev['id'] ?>
-                            <?php if (!empty($ev['categoria'])): ?> • <?= e($ev['categoria']) ?><?php endif; ?>
-                        </p>
-
-                        <p class="row-meta" style="margin-top:6px;">
-                            <?php if ($isInfo): ?>
-                                <strong>Tipo:</strong> Informativo (no prenotazioni)
-                            <?php else: ?>
-                                <strong>Posti:</strong> <?= (int)$ev['posti_prenotati'] ?>/<?= $postiTot ?>
-                                • <strong>Prenotazione:</strong> <?= ($ev['prenotazione_obbligatoria'] === 't') ? 'Obbligatoria' : 'Non obbligatoria' ?>
-                            <?php endif; ?>
-                            • <strong>Prezzo:</strong> €<?= e(number_format((float)$ev['prezzo'], 2, '.', '')) ?>
-                            • <strong>Stato:</strong> <?= e($st) ?>
-                        </p>
-                    </div>
-
-                    <div class="row-actions">
-                        <a class="btn btn-ghost" href="<?= base_url('evento.php?id=' . (int)$ev['id']) ?>">Apri</a>
-                        <a class="btn btn-admin" href="<?= base_url('admin/admin_event_edit.php?id=' . (int)$ev['id']) ?>">Modifica</a>
-                    </div>
-                </article>
-            <?php endforeach; ?>
-        </div>
-    <?php endif; ?>
-</section>
+<!-- JS usato anche in proponi_evento/edit: gestisce geolocalizzazione e controlli UX -->
+<script defer src="<?= e(base_url('assets/js/proponi_evento.js')) ?>"></script>
 
 <?php require_once __DIR__ . '/../includes/admin_footer.php'; ?>
