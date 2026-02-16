@@ -134,6 +134,48 @@ function enableClickMove() {
   });
 }
 
+// ===============================
+// COUNTDOWN (area personale)
+// ===============================
+function initCountdowns() {
+  const nodes = document.querySelectorAll(".countdown[data-countdown]");
+  if (!nodes.length) return;
+
+  const pad = (n) => String(n).padStart(2, "0");
+
+  function tick() {
+    const now = new Date().getTime();
+
+    nodes.forEach((el) => {
+      const raw = el.getAttribute("data-countdown");
+      const target = new Date(raw).getTime();
+
+      if (Number.isNaN(target)) {
+        el.textContent = "Data non valida";
+        return;
+      }
+
+      let diff = target - now;
+
+      if (diff <= 0) {
+        el.textContent = "In corso / concluso";
+        return;
+      }
+
+      const totalSec = Math.floor(diff / 1000);
+      const days = Math.floor(totalSec / 86400);
+      const hours = Math.floor((totalSec % 86400) / 3600);
+      const mins = Math.floor((totalSec % 3600) / 60);
+      const secs = totalSec % 60;
+
+      el.textContent = `${days}g ${pad(hours)}h ${pad(mins)}m ${pad(secs)}s`;
+    });
+  }
+
+  tick();
+  setInterval(tick, 1000);
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   const left = document.getElementById("list-disponibili");
   const right = document.getElementById("list-preferite");
@@ -159,4 +201,7 @@ document.addEventListener("DOMContentLoaded", () => {
   form?.addEventListener("submit", () => {
     refreshHiddenInput();
   });
+
+  initCountdowns();
+
 });

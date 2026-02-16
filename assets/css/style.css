@@ -530,6 +530,40 @@
     box-shadow: 0 18px 35px rgba(0,0,0,0.10);
   }
 
+  /* Card/box bianchi: più respiro */
+.card, .panel, .box, .section-card, .widget {
+  padding: 22px 24px !important;
+  border-radius: 16px;
+}
+
+/* Se dentro hai liste/righe: evita testo attaccato ai bordi */
+.card *:first-child,
+.panel *:first-child,
+.box *:first-child {
+  margin-top: 0;
+}
+
+.card *:last-child,
+.panel *:last-child,
+.box *:last-child {
+  margin-bottom: 0;
+}
+/* Contenitore principale dell'area personale */
+.area-grid, .dashboard-grid, .two-col {
+  display: grid;
+  grid-template-columns: 1fr !important; /* verticale */
+  gap: 22px;
+  align-items: start;
+}
+
+/* Se vuoi 2 colonne SOLO su schermi enormi (opzionale) */
+@media (min-width: 1400px){
+  .area-grid.two-cols-xl {
+    grid-template-columns: 1.3fr 1fr !important;
+  }
+}
+
+
   /* meta */
   .meta{
     color: var(--muted);
