@@ -203,7 +203,7 @@ function render_event_row(array $ev, string $section): void
 
             <p class="row-meta" style="margin-top:6px;">
                 <?php if ($isInfo): ?>
-                    <strong>Tipo:</strong> Informativo (posti NULL → no prenotazioni)
+                    <strong>Tipo:</strong> Informativo
                 <?php else: ?>
                     <strong>Posti:</strong> <?= $postiPren ?>/<?= (int)$postiTot ?>
                     • <strong>Prenotazione:</strong> <?= $prenObbl ? 'Obbligatoria' : 'Non obbligatoria' ?>
@@ -211,7 +211,7 @@ function render_event_row(array $ev, string $section): void
 
                 • <strong>Prezzo:</strong> €<?= e(number_format((float)($ev['prezzo'] ?? 0), 2, '.', '')) ?>
                 • <strong>Moderazione:</strong> <?= e($st) ?>
-                • <strong>Lifecycle:</strong> <?= e($stEv) ?><?= $arch ? ' • archiviato' : '' ?>
+                • <strong>Stato evento:</strong> <?= e($stEv) ?><?= $arch ? ' • archiviato' : '' ?>
             </p>
         </div>
 
@@ -274,7 +274,6 @@ function render_event_row(array $ev, string $section): void
 <section class="card" aria-label="Navigazione rapida">
     <header class="card-head">
         <h2>Eventi</h2>
-        <p class="muted">Gestione completa in un’unica pagina: moderazione + lifecycle + storico.</p>
     </header>
 
     <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
@@ -297,7 +296,6 @@ function render_event_row(array $ev, string $section): void
 <section class="card" aria-label="Ricerca eventi">
     <header class="card-head">
         <h2>Ricerca</h2>
-        <p class="muted">Filtro lato server (sicuro e coerente con DB).</p>
     </header>
 
     <form method="get" action="<?= e(base_url('admin/admin_eventi.php')) ?>"
@@ -319,8 +317,7 @@ function render_event_row(array $ev, string $section): void
 ===================================================== -->
 <section class="card" id="live" aria-label="Eventi approvati in vigore">
     <header class="card-head">
-        <h2>Approvati in vigore</h2>
-        <p class="muted">Futuri, attivi e non archiviati (visibili al pubblico).</p>
+        <h2>Approvati e attivi</h2>
     </header>
 
     <?php if (!$eventi_live): ?>
@@ -338,7 +335,7 @@ function render_event_row(array $ev, string $section): void
 <section class="card" id="pending" aria-label="Eventi in attesa">
     <header class="card-head">
         <h2>In attesa</h2>
-        <p class="muted">Eventi da moderare (approva/rifiuta).</p>
+        <p class="muted">Eventi da moderare.</p>
     </header>
 
     <?php if (!$eventi_pending): ?>
@@ -356,7 +353,7 @@ function render_event_row(array $ev, string $section): void
 <section class="card" id="rejected" aria-label="Eventi rifiutati">
     <header class="card-head">
         <h2>Rifiutati</h2>
-        <p class="muted">Storico eventi non pubblicati (audit moderazione).</p>
+        <p class="muted">Storico eventi non pubblicati.</p>
     </header>
 
     <?php if (!$eventi_rejected): ?>
@@ -374,7 +371,7 @@ function render_event_row(array $ev, string $section): void
 <section class="card" id="done" aria-label="Eventi conclusi">
     <header class="card-head">
         <h2>Conclusi</h2>
-        <p class="muted">Eventi passati (restano nel DB per tracciabilità e storico).</p>
+        <p class="muted">Eventi passati.</p>
     </header>
 
     <?php if (!$eventi_done): ?>

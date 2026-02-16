@@ -260,120 +260,123 @@ require_once __DIR__ . '/includes/header.php';
         Nessun evento futuro trovato con questi filtri.
       </div>
     <?php else: ?>
-      <section class="grid" aria-label="Elenco eventi futuri">
-        <?php while ($ev = pg_fetch_assoc($res)) : ?>
-          <?php
-          $id = (int)$ev['id'];
+      <div class="eventi-page">
+        <section class="events-list" aria-label="Elenco eventi futuri">
+          <article class="card event-card <?= $isPreferred ? 'card-preferred' : '' ?>">
+            <?php while ($ev = pg_fetch_assoc($res)) : ?>
+              <?php
+              $id = (int)$ev['id'];
 
-          $isFree = ((float)$ev['prezzo'] <= 0);
-          $needBooking = ($ev['prenotazione_obbligatoria'] === 't' || $ev['prenotazione_obbligatoria'] === true || $ev['prenotazione_obbligatoria'] === '1');
+              $isFree = ((float)$ev['prezzo'] <= 0);
+              $needBooking = ($ev['prenotazione_obbligatoria'] === 't' || $ev['prenotazione_obbligatoria'] === true || $ev['prenotazione_obbligatoria'] === '1');
 
-          // DB pulito: informativo = posti_totali NULL
-          $isInfo = ($ev['posti_totali'] === null || $ev['posti_totali'] === '');
-          $hasLimitedSeats = (!$isInfo && (int)$ev['posti_totali'] > 0);
+              // DB pulito: informativo = posti_totali NULL
+              $isInfo = ($ev['posti_totali'] === null || $ev['posti_totali'] === '');
+              $hasLimitedSeats = (!$isInfo && (int)$ev['posti_totali'] > 0);
 
-          // preferito?
-          $isPreferred = ($logged && isset($prefMap[(int)$ev['categoria_id']]));
+              // preferito?
+              $isPreferred = ($logged && isset($prefMap[(int)$ev['categoria_id']]));
 
-          // badge tempo (solo loggati)
-          $badge = '';
-          if ($logged) {
-            $now = new DateTime('now');
-            $dt  = new DateTime((string)$ev['data_evento']);
+              // badge tempo (solo loggati)
+              $badge = '';
+              if ($logged) {
+                $now = new DateTime('now');
+                $dt  = new DateTime((string)$ev['data_evento']);
 
-            if ($dt > $now) {
-              if ($dt->format('Y-m-d') === $now->format('Y-m-d')) {
-                $diff  = $now->diff($dt);
-                $hours = (int)$diff->h;
-                $mins  = (int)$diff->i;
+                if ($dt > $now) {
+                  if ($dt->format('Y-m-d') === $now->format('Y-m-d')) {
+                    $diff  = $now->diff($dt);
+                    $hours = (int)$diff->h;
+                    $mins  = (int)$diff->i;
 
-                if ($hours === 0) $badge = ($mins <= 1) ? 'Tra 1 minuto' : "Tra {$mins} minuti";
-                elseif ($mins === 0) $badge = ($hours === 1) ? 'Tra 1 ora' : "Tra {$hours} ore";
-                else $badge = "Tra {$hours}h {$mins}m";
-              } else {
-                $days = (int)$now->diff($dt)->days;
-                $badge = ($days === 1) ? 'Domani' : "Tra {$days} giorni";
+                    if ($hours === 0) $badge = ($mins <= 1) ? 'Tra 1 minuto' : "Tra {$mins} minuti";
+                    elseif ($mins === 0) $badge = ($hours === 1) ? 'Tra 1 ora' : "Tra {$hours} ore";
+                    else $badge = "Tra {$hours}h {$mins}m";
+                  } else {
+                    $days = (int)$now->diff($dt)->days;
+                    $badge = ($days === 1) ? 'Domani' : "Tra {$days} giorni";
+                  }
+                }
               }
-            }
-          }
 
-          // distanza (solo se geo_ok e valorizzata)
-          $distLabel = '';
-          if ($logged && $geo_ok && $ev['distanza_km'] !== null && $ev['distanza_km'] !== '') {
-            $dist = (float)$ev['distanza_km'];
-            if ($dist >= 0) $distLabel = number_format($dist, 1, ',', '.') . " km";
-          }
-          ?>
+              // distanza (solo se geo_ok e valorizzata)
+              $distLabel = '';
+              if ($logged && $geo_ok && $ev['distanza_km'] !== null && $ev['distanza_km'] !== '') {
+                $dist = (float)$ev['distanza_km'];
+                if ($dist >= 0) $distLabel = number_format($dist, 1, ',', '.') . " km";
+              }
+              ?>
 
-          <article class="card <?= $isPreferred ? 'card-preferred' : '' ?>" aria-label="Evento <?= e($ev['titolo']) ?>">
+              <article class="card <?= $isPreferred ? 'card-preferred' : '' ?>" aria-label="Evento <?= e($ev['titolo']) ?>">
 
-            <div class="card-img">
-              <?php if (!empty($ev['immagine'])): ?>
-                <img src="<?= e($ev['immagine']) ?>" alt="Immagine evento: <?= e($ev['titolo']) ?>">
-              <?php else: ?>
-                <span aria-hidden="true"><?= e($ev['categoria'] ?? 'Evento') ?></span>
-              <?php endif; ?>
+                <div class="card-img">
+                  <?php if (!empty($ev['immagine'])): ?>
+                    <img src="<?= e($ev['immagine']) ?>" alt="Immagine evento: <?= e($ev['titolo']) ?>">
+                  <?php else: ?>
+                    <span aria-hidden="true"><?= e($ev['categoria'] ?? 'Evento') ?></span>
+                  <?php endif; ?>
 
-              <div class="img-tags" aria-hidden="true">
-                <?php if ($isPreferred): ?>
-                  <span class="tag-overlay pref">Per te</span>
-                <?php endif; ?>
+                  <div class="img-tags" aria-hidden="true">
+                    <?php if ($isPreferred): ?>
+                      <span class="tag-overlay pref">Per te</span>
+                    <?php endif; ?>
 
-                <?php if ($isFree): ?>
-                  <span class="tag-overlay free">Gratis</span>
-                <?php else: ?>
-                  <span class="tag-overlay book">€<?= e(number_format((float)$ev['prezzo'], 2, ',', '.')) ?></span>
-                <?php endif; ?>
+                    <?php if ($isFree): ?>
+                      <span class="tag-overlay free">Gratis</span>
+                    <?php else: ?>
+                      <span class="tag-overlay book">€<?= e(number_format((float)$ev['prezzo'], 2, ',', '.')) ?></span>
+                    <?php endif; ?>
 
-                <?php if ($needBooking && !$isInfo): ?>
-                  <span class="tag-overlay hot">Prenotazione</span>
-                <?php endif; ?>
+                    <?php if ($needBooking && !$isInfo): ?>
+                      <span class="tag-overlay hot">Prenotazione</span>
+                    <?php endif; ?>
 
-                <?php if ($distLabel !== ''): ?>
-                  <span class="tag-overlay"><?= e($distLabel) ?></span>
-                <?php endif; ?>
+                    <?php if ($distLabel !== ''): ?>
+                      <span class="tag-overlay"><?= e($distLabel) ?></span>
+                    <?php endif; ?>
 
-                <?php if ($badge !== ''): ?>
-                  <span class="tag-overlay"><?= e($badge) ?></span>
-                <?php endif; ?>
-              </div>
-            </div>
+                    <?php if ($badge !== ''): ?>
+                      <span class="tag-overlay"><?= e($badge) ?></span>
+                    <?php endif; ?>
+                  </div>
+                </div>
 
-            <div class="card-body">
-              <div class="tag-row">
-                <span class="tag cardtag"><?= e($ev['categoria'] ?? 'Evento') ?></span>
-                <span class="tag cardtag"><?= e(date("d/m/Y H:i", strtotime((string)$ev['data_evento']))) ?></span>
+                <div class="card-body">
+                  <div class="tag-row">
+                    <span class="tag cardtag"><?= e($ev['categoria'] ?? 'Evento') ?></span>
+                    <span class="tag cardtag"><?= e(date("d/m/Y H:i", strtotime((string)$ev['data_evento']))) ?></span>
 
-                <?php if ($hasLimitedSeats): ?>
-                  <span class="tag cardtag">Posti: <?= (int)$ev['posti_totali'] ?></span>
-                <?php else: ?>
-                  <span class="tag cardtag">Info</span>
-                <?php endif; ?>
-              </div>
+                    <?php if ($hasLimitedSeats): ?>
+                      <span class="tag cardtag">Posti: <?= (int)$ev['posti_totali'] ?></span>
+                    <?php else: ?>
+                      <span class="tag cardtag">Accesso libero</span>
+                    <?php endif; ?>
+                  </div>
 
-              <h3><?= e($ev['titolo']) ?></h3>
+                  <h3><?= e($ev['titolo']) ?></h3>
 
-              <p class="meta">
-                <span><?= e($ev['luogo']) ?></span>
-              </p>
+                  <p class="meta">
+                    <span><?= e($ev['luogo']) ?></span>
+                  </p>
 
-              <p class="desc"><?= e($ev['descrizione_breve']) ?></p>
+                  <p class="desc"><?= e($ev['descrizione_breve']) ?></p>
 
-              <?php if ($logged): ?>
-                <a class="cta-login" href="<?= base_url('evento.php?id=' . urlencode((string)$id)) ?>">
-                  Maggiori dettagli <small><?= $isInfo ? '' : 'e prenota' ?></small>
-                </a>
-              <?php else: ?>
-                <a class="cta-login" href="<?= base_url('login.php') ?>">
-                  Accedi <small>per saperne di più</small>
-                </a>
-              <?php endif; ?>
-            </div>
+                  <?php if ($logged): ?>
+                    <a class="cta-login" href="<?= base_url('evento.php?id=' . urlencode((string)$id)) ?>">
+                      Maggiori dettagli <small><?= $isInfo ? '' : 'e prenota' ?></small>
+                    </a>
+                  <?php else: ?>
+                    <a class="cta-login" href="<?= base_url('login.php') ?>">
+                      Accedi <small>per saperne di più</small>
+                    </a>
+                  <?php endif; ?>
+                </div>
 
-          </article>
+              </article>
 
-        <?php endwhile; ?>
-      </section>
+            <?php endwhile; ?>
+        </section>
+      </div>
     <?php endif; ?>
 
   </div>

@@ -15,9 +15,8 @@ require_once __DIR__ . '/includes/header.php';
 <section class="card">
     <h2>Riferimenti</h2>
     <ul class="clean-list">
-        <li><strong>Email:</strong> <a href="mailto:info@enjoycity.local">info@enjoycity.local</a></li>
-        <li><strong>Telefono:</strong> <a href="tel:+390000000000">+39 000 000 0000</a></li>
-        <li><strong>Territorio:</strong> Avellino (AV) – Irpinia</li>
+        <li><strong>Email:</strong> <a href="mailto:turista@enjoycity.it">turista@enjoycity.it</a></li>
+        <li><strong>Telefono:</strong> <a href="tel:+390000000000">+39 333 810 8441</a></li>
         <li><strong>Orari:</strong> Lun–Ven, 09:00–18:00</li>
     </ul>
 </section>

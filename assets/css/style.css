@@ -529,40 +529,7 @@
     transform: translateY(-4px);
     box-shadow: 0 18px 35px rgba(0,0,0,0.10);
   }
-  
-  /* immagine card */
-  .card-img{
-    position: relative;
-    height: 160px;
-    overflow: hidden;
-  }
-  
-  .card-img img{
-    width:100%;
-    height:100%;
-    object-fit: cover;
-    object-position: center;
-    display:block;
-    transform: scale(1);
-    transition: transform .35s ease;
-  }
-  
-  .card:hover .card-img img{
-    transform: scale(1.06);
-  }
-  
-  .card-body{
-    padding: 14px;
-    display:flex;
-    flex-direction:column;
-    gap: 8px;
-  }
-  
-  .card-body h3{
-    margin:0;
-    font-size: 16px;
-  }
-  
+
   /* meta */
   .meta{
     color: var(--muted);
@@ -588,7 +555,6 @@
     border-radius: 16px;
   }
   
-  
   /* =========================================================
      12) EVIDENZA ROW (scroll orizzontale)
      ========================================================= */
@@ -609,7 +575,167 @@
     height: 140px;
   }
   
-  
+  /* =========================================================
+   11) GRID + CARD (BASE)
+   ---------------------------------------------------------
+   Queste sono le regole BASE riusabili.
+   NON mettiamo qui regole specifiche di eventi.php,
+   altrimenti rompiamo index (evidenza) e altre pagine.
+   ========================================================= */
+
+/* Griglia base (usata in varie pagine) */
+.grid{
+  display:grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+@media (max-width: 980px){
+  .grid{ grid-template-columns: 1fr; }
+}
+
+/* Card base (stile premium generale) */
+.card{
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+  overflow:hidden;
+  display:flex;
+  flex-direction:column;
+  transition: transform .18s ease, box-shadow .18s ease;
+}
+.card:hover{
+  transform: translateY(-4px);
+  box-shadow: 0 18px 35px rgba(0,0,0,0.10);
+}
+
+/* Immagine base card (DEFAULT = cover, bella piena) */
+.card-img{
+  position: relative;
+  height: 160px;
+  overflow: hidden;
+  background: #f3f4f6;
+}
+.card-img img{
+  width:100%;
+  height:100%;
+  object-fit: cover;           /* default per index/evidenza */
+  object-position: center;
+  display:block;
+  transform: scale(1);
+  transition: transform .35s ease;
+}
+.card:hover .card-img img{
+  transform: scale(1.06);      /* zoom leggero SOLO default */
+}
+
+/* Corpo card base */
+.card-body{
+  padding: 14px;
+  display:flex;
+  flex-direction:column;
+  gap: 8px;
+}
+.card-body h3{
+  margin:0;
+  font-size: 16px;
+}
+
+/* Meta e descrizione base */
+.meta{
+  color: var(--muted);
+  font-size: 13px;
+  display:flex;
+  flex-wrap:wrap;
+  gap: 8px;
+}
+.desc{
+  color: #374151;
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+
+/* =========================================================
+   12) EVIDENZA ROW (INDEX)
+   ---------------------------------------------------------
+   Qui la card è più "compatta" e in orizzontale.
+   Queste regole restano come le hai.
+   ========================================================= */
+
+.evidenza-row{
+  display:flex;
+  gap:14px;
+  overflow-x:auto;
+  padding-bottom: 8px;
+  scroll-snap-type: x mandatory;
+}
+
+.evidenza-row .card{
+  flex: 0 0 320px;
+  scroll-snap-align: start;
+}
+
+/* immagine più bassa SOLO per evidenza */
+.evidenza-row .card-img{
+  height: 140px;
+}
+
+
+/* =========================================================
+   24) EVENTI.PHP (SCOPED) - NON tocca INDEX
+   ---------------------------------------------------------
+   Tutto ciò che riguarda la pagina eventi viene "scopato"
+   dentro .eventi-page per evitare collisioni con index.
+   ========================================================= */
+
+/* Layout lista (full width) - usato in eventi.php */
+.eventi-page .events-list{
+  display:flex;
+  flex-direction:column;
+  gap: 32px;                 /* più spazio tra eventi */
+}
+
+/* Card evento: full width (mantiene base .card) */
+.eventi-page .event-card{
+  width: 100%;
+}
+
+/* Immagine evento: più grande MA non enorme */
+.eventi-page .event-card .card-img{
+  height: 210px;             /* “pizzico più grande” */
+  background: #f3f4f6;
+}
+
+/* Anti-sgranatura: niente zoom + immagine intera */
+.eventi-page .event-card .card-img img{
+  object-fit: contain;       /* mostra tutta l’immagine */
+  transform: none !important;
+  transition: none !important;
+}
+
+/* Disattiva lo zoom hover SOLO nella pagina eventi */
+.eventi-page .event-card:hover .card-img img{
+  transform: none !important;
+}
+
+/* Testi più piccoli SOLO in eventi.php */
+.eventi-page .event-card .card-body{
+  padding: 18px 22px;
+  gap: 6px;
+}
+.eventi-page .event-card .card-body h3{
+  font-size: 18px;
+  line-height: 1.25;
+}
+.eventi-page .event-card .meta{
+  font-size: 13px;
+}
+.eventi-page .event-card .desc{
+  font-size: 14px;
+  line-height: 1.45;
+}
+
   /* =========================================================
      13) PILL / TAG (interni)
      ========================================================= */
@@ -980,45 +1106,49 @@
   /* =========================================================
      18) CARD / GRID DASHBOARD (12-col)
      ========================================================= */
-  .grid{ display:grid; gap: 12px; }
-  
-  .cards{ grid-template-columns: repeat(12, 1fr); }
-  .reviews{ grid-template-columns: repeat(12, 1fr); }
-  
-  /* card dashboard */
-  .card{
-    grid-column: span 4;
-    border: 1px solid var(--border, #e5e7eb);
-    border-radius: 14px;
-    padding: 14px;
-    background: var(--card, #ffffff);
-  }
-  
-  @media (max-width: 900px){
-    .card { grid-column: span 6; }
-  }
-  @media (max-width: 600px){
-    .card { grid-column: span 12; }
-  }
-  
-  .card-top{
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    margin-bottom: 10px;
-  }
-  
-  .card-title{
-    margin: 0 0 6px;
-    font-size: 16px;
-    line-height: 1.3;
-  }
-  
-  .card-meta{
-    margin: 0;
-    font-size: 13px;
-  }
+/* =========================================================
+   18) CARD / GRID DASHBOARD (12-col)  [SCOPED]
+   ========================================================= */
+   .dashboard .grid{ display:grid; gap: 12px; }
+
+   .dashboard .cards{ grid-template-columns: repeat(12, 1fr); }
+   .dashboard .reviews{ grid-template-columns: repeat(12, 1fr); }
+   
+   /* card dashboard */
+   .dashboard .card{
+     grid-column: span 4;
+     border: 1px solid var(--border, #e5e7eb);
+     border-radius: 14px;
+     padding: 14px;
+     background: var(--card, #ffffff);
+   }
+   
+   @media (max-width: 900px){
+     .dashboard .card { grid-column: span 6; }
+   }
+   @media (max-width: 600px){
+     .dashboard .card { grid-column: span 12; }
+   }
+   
+   .dashboard .card-top{
+     display: flex;
+     align-items: center;
+     justify-content: space-between;
+     gap: 8px;
+     margin-bottom: 10px;
+   }
+   
+   .dashboard .card-title{
+     margin: 0 0 6px;
+     font-size: 16px;
+     line-height: 1.3;
+   }
+   
+   .dashboard .card-meta{
+     margin: 0;
+     font-size: 13px;
+   }
+   
   
   .countdown{
     margin: 10px 0 0;
@@ -1190,6 +1320,46 @@
   .eventi-head .btn:hover{ background: rgba(15,118,110,0.10); }
   
   
+  /* =========================================================
+   EVENTI - anti-sgranatura (immagine più piccola, no zoom)
+   ========================================================= */
+
+.event-card .card-img{
+  height: 190px;          /* più piccola -> meno sgranata */
+  background: #f3f4f6;
+}
+
+/* mostra tutta l’immagine, no tagli */
+.event-card .card-img img{
+  width: 100%;
+  height: 100%;
+  object-fit: contain;     /* zero tagli, zero zoom */
+  object-position: center;
+  transform: none !important;
+  transition: none !important;
+}
+
+/* blocca lo zoom hover che hai nella sezione 11 */
+.card:hover .card-img img{
+  transform: none !important;
+}
+/* EVENTI – regolazione dimensioni eleganti */
+
+.event-card .card-img{
+  height: 210px;   /* prima 190 → ora leggermente più grande */
+  background: #f3f4f6;
+}
+
+/* manteniamo zero zoom e zero tagli */
+.event-card .card-img img{
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center;
+  transform: none !important;
+  transition: none !important;
+}
+
   /* =========================================================
      21) AREA PERSONALE (preferenze, drag&drop)
      ========================================================= */
@@ -1461,5 +1631,3 @@
   font-size: 16px;
   line-height: 1;
 }
-
-  

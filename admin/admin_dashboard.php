@@ -1,18 +1,6 @@
 <?php
-// =========================================================
+
 // FILE: admin/admin_dashboard.php
-// Scopo didattico:
-// - Dashboard admin con KPI + "coda di moderazione"
-// - KPI professionali: distinguo moderazione (stato) e lifecycle (archiviato/stato_evento/data)
-// - Sezioni operative:
-//   A) KPI (panoramica)
-//   B) Eventi in attesa (approva/rifiuta/modifica)
-//   C) Recensioni in attesa (approva/rifiuta)
-//   D) Preview eventi in vigore (azioni lifecycle rapide)
-// Note per la prof:
-// - "in vigore" = ciò che il pubblico vede davvero (approvato + futuro + attivo + non archiviato)
-// - Lo storico (conclusi) resta nel DB per tracciabilità (audit)
-// =========================================================
 
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
@@ -22,7 +10,7 @@ require_once __DIR__ . '/../includes/config.php';
 if (session_status() === PHP_SESSION_NONE) session_start();
 
 // =========================================================
-// Guard: SOLO ADMIN
+// SOLO ADMIN
 // =========================================================
 if (!isset($_SESSION['logged']) || $_SESSION['logged'] !== true || ($_SESSION['ruolo'] ?? '') !== 'admin') {
     $_SESSION['flash_error'] = "Accesso non autorizzato.";
@@ -33,9 +21,6 @@ if (!isset($_SESSION['logged']) || $_SESSION['logged'] !== true || ($_SESSION['r
 $page_title = "Dashboard Admin - EnjoyCity";
 $conn = db_connect();
 
-// =========================================================
-// Flash PRG (Post/Redirect/Get)
-// =========================================================
 $flash_ok    = $_SESSION['flash_ok'] ?? '';
 $flash_error = $_SESSION['flash_error'] ?? '';
 unset($_SESSION['flash_ok'], $_SESSION['flash_error']);
@@ -58,12 +43,12 @@ function is_true_pg_local($v): bool
 }
 
 // =========================================================
-// KPI: panoramica "da progetto professionale"
+// KPI (key Performance Indicator) per dare una visione dello stato del sistema:
 // - totali: per overview
 // - in vigore: ciò che è online (visibile al pubblico)
 // - conclusi: eventi approvati passati (storico)
 // - rifiutati: audit moderazione
-// - annullati/archiviati: lifecycle
+// - annullati/archiviati: stato dell'evento
 // =========================================================
 $kpi_utenti = count_q($conn, "SELECT COUNT(*) c FROM utenti");
 
@@ -209,7 +194,7 @@ function render_action_btn(int $id, string $azione, string $label, string $class
      Nota per la prof:
      - "in vigore" = ciò che è online al pubblico
      - "conclusi" = storico (audit)
-     - "annullati/archiviati" = lifecycle (gestione post-pubblicazione)
+     - "annullati/archiviati" = stato evento (gestione post-pubblicazione)
 ========================================================= -->
 <section class="admin-kpi" aria-label="Statistiche rapide">
     <article class="kpi-card">
@@ -271,7 +256,6 @@ function render_action_btn(int $id, string $azione, string $label, string $class
 <section class="card" aria-label="Azioni rapide admin">
     <header class="card-head">
         <h2>Azioni rapide</h2>
-        <p class="muted">Vai subito alle sezioni di gestione completa eventi.</p>
     </header>
 
     <div style="display:flex;gap:10px;flex-wrap:wrap;">
@@ -323,7 +307,7 @@ function render_action_btn(int $id, string $azione, string $label, string $class
 
             <div style="margin-top:10px;">
                 <a class="btn btn-ghost" href="<?= base_url('admin/admin_eventi.php#pending') ?>">
-                    Vai alla gestione eventi (In attesa) →
+                    Vai alla gestione eventi →
                 </a>
             </div>
         <?php endif; ?>
@@ -335,7 +319,7 @@ function render_action_btn(int $id, string $azione, string $label, string $class
     <section class="card" aria-label="Recensioni da moderare">
         <header class="card-head">
             <h2>Recensioni da moderare</h2>
-            <p class="muted">Approva o rifiuta. Dopo l’approvazione compaiono su “Dicono di noi”.</p>
+            <p class="muted">Approva o rifiuta. Dopo l’approvazione la recensione sarà pubblicata su “Dicono di noi”.</p>
         </header>
 
         <?php if (!$pending_reviews): ?>
@@ -375,24 +359,17 @@ function render_action_btn(int $id, string $azione, string $label, string $class
                     </article>
                 <?php endforeach; ?>
             </div>
-
-            <div style="margin-top:10px;">
-                <a class="btn btn-ghost" href="<?= base_url('admin/admin_recensioni.php?stato=in_attesa') ?>">
-                    Vedi tutte le recensioni in attesa →
-                </a>
-            </div>
         <?php endif; ?>
     </section>
 
 </section>
 
 <!-- =========================================================
-     Preview Eventi in vigore (controllo rapido + azioni lifecycle)
+     Preview Eventi in vigore (controllo rapido + azioni stato evento)
 ========================================================= -->
 <section class="card" aria-label="Eventi in vigore">
     <header class="card-head">
-        <h2>Preview: eventi in vigore</h2>
-        <p class="muted">Controllo rapido di ciò che è online (azioni lifecycle senza aprire altre pagine).</p>
+        <h2>Accesso rapido: eventi attivi</h2>
     </header>
 
     <?php if (!$live_events): ?>
@@ -427,7 +404,7 @@ function render_action_btn(int $id, string $azione, string $label, string $class
                         <a class="btn btn-ghost" href="<?= base_url('evento.php?id=' . $id) ?>">Apri</a>
                         <a class="btn btn-admin" href="<?= base_url('admin/admin_event_edit.php?id=' . $id) ?>">Modifica</a>
 
-                        <!-- lifecycle quick actions -->
+                        <!-- stato evento quick actions -->
                         <?php render_action_btn($id, 'annulla', 'Annulla', 'btn btn-danger'); ?>
                         <?php render_action_btn($id, 'archivia', 'Archivia', 'btn btn-ghost'); ?>
                     </div>
@@ -437,7 +414,7 @@ function render_action_btn(int $id, string $azione, string $label, string $class
 
         <div style="margin-top:10px;">
             <a class="btn btn-ghost" href="<?= base_url('admin/admin_eventi.php#live') ?>">
-                Vedi tutti gli eventi in vigore →
+                Vedi tutti gli eventi attivi →
             </a>
         </div>
     <?php endif; ?>

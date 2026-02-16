@@ -4,9 +4,9 @@
 // Scopo didattico:
 // - Form Admin per modifica evento
 // - Validazioni server-side (sempre!)
-// - Coerenza con lifecycle:
+// - Coerenza con stato evento:
 //   - stato: approvato / in_attesa / rifiutato (moderazione)
-//   - stato_evento: attivo / annullato (lifecycle operativo)
+//   - stato_evento: attivo / annullato (stato evento operativo)
 //   - archiviato: true/false (soft delete / storico)
 // - DB pulito per eventi informativi:
 //   - posti_totali = NULL => informativo (no prenotazioni)
@@ -42,6 +42,17 @@ function is_true_pg($v): bool
 }
 
 // ---------------------------------------------------------
+// Utility: escape output
+// (se non hai già e() nel tuo progetto, lascialo qui)
+// ---------------------------------------------------------
+if (!function_exists('e')) {
+    function e($s): string
+    {
+        return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
+    }
+}
+
+// ---------------------------------------------------------
 // 2) ID evento (GET)
 // ---------------------------------------------------------
 $idRaw = $_GET['id'] ?? '';
@@ -58,7 +69,9 @@ $event_id = (int)$idRaw;
 // ---------------------------------------------------------
 $categorie = [];
 $resCat = pg_query($conn, "SELECT id, nome FROM categorie ORDER BY nome;");
-if ($resCat) while ($row = pg_fetch_assoc($resCat)) $categorie[] = $row;
+if ($resCat) {
+    while ($row = pg_fetch_assoc($resCat)) $categorie[] = $row;
+}
 
 // ---------------------------------------------------------
 // 4) Carico evento
@@ -75,7 +88,7 @@ if (!$evento) {
 
 // ---------------------------------------------------------
 // 5) Valori "sticky" (precompilati)
-// - NB: posti_totali NULL => informativo => campo vuoto nel form
+// - posti_totali NULL => informativo => campo vuoto nel form
 // ---------------------------------------------------------
 $val = [
     'titolo' => (string)($evento['titolo'] ?? ''),
@@ -94,7 +107,6 @@ $val = [
     'prenotazione_obbligatoria' => is_true_pg($evento['prenotazione_obbligatoria'] ?? false) ? '1' : '0',
     'stato' => (string)($evento['stato'] ?? 'in_attesa'),
 
-    // lifecycle extra
     'stato_evento' => (string)($evento['stato_evento'] ?? 'attivo'),
     'archiviato' => is_true_pg($evento['archiviato'] ?? false) ? '1' : '0',
 ];
@@ -131,8 +143,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $catRaw = $val['categoria_id'];
 
     $stato  = $val['stato'];              // moderazione
-    $stato_evento = $val['stato_evento']; // lifecycle
-    $archiviato = ($val['archiviato'] === '1');
+    $stato_evento = $val['stato_evento']; // stato evento
+
+    // ✅ FIX: archiviato sempre come boolean PG ('t'/'f')
+    $archiviato_pg = ($val['archiviato'] === '1') ? 't' : 'f';
 
     // 6.3 validazioni testi e select
     if ($titolo === '' || $breve === '' || $lunga === '' || $val['data_evento'] === '' || $luogo === '' || $catRaw === '' || $stato === '') {
@@ -295,7 +309,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 categoria_id = $12,
                 stato = $13,
                 stato_evento = $14,
-                archiviato = $15
+                archiviato = $15::boolean
             WHERE id = $16
         ";
 
@@ -309,12 +323,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $latF,
             $lonF,
             (float)$prezzo,
-            $postiTotali,     // NULL => informativo
-            $pren_bool,
+            $postiTotali,        // NULL => informativo
+            $pren_bool,          // 't'/'f'
             $categoria_id,
             $stato,
             $stato_evento,
-            $archiviato,
+            $archiviato_pg,      // ✅ 't'/'f'
             $event_id
         ];
 
@@ -342,8 +356,7 @@ require_once __DIR__ . '/../includes/admin_header.php';
     <header class="card-head">
         <h2>Modifica evento</h2>
         <p class="muted">
-            Evento ID: <?= (int)$event_id ?> •
-            <strong>Informativo</strong> = posti vuoti (NULL) → nessuna prenotazione.
+            Evento ID: <?= (int)$event_id ?>
         </p>
     </header>
 
@@ -362,11 +375,6 @@ require_once __DIR__ . '/../includes/admin_header.php';
         </figure>
     <?php endif; ?>
 
-    <!-- =====================================================
-         FORM
-         - enctype multipart per upload immagine
-         - novalidate: JS facoltativo, ma server-side resta obbligatorio
-         ===================================================== -->
     <form id="formEditEvento" class="auth-form"
         action="<?= e(base_url('admin/admin_event_edit.php?id=' . $event_id)) ?>"
         method="POST" enctype="multipart/form-data" novalidate>
@@ -402,7 +410,6 @@ require_once __DIR__ . '/../includes/admin_header.php';
             <small class="hint" id="catHint"></small>
         </div>
 
-        <!-- Moderazione -->
         <div class="field">
             <label for="stato">Stato (moderazione) *</label>
             <select id="stato" name="stato" required>
@@ -414,9 +421,8 @@ require_once __DIR__ . '/../includes/admin_header.php';
             </select>
         </div>
 
-        <!-- Lifecycle operativo -->
         <div class="field">
-            <label for="stato_evento">Stato evento (lifecycle) *</label>
+            <label for="stato_evento">Stato evento *</label>
             <select id="stato_evento" name="stato_evento" required>
                 <?php foreach (['attivo', 'annullato'] as $s): ?>
                     <option value="<?= e($s) ?>" <?= ($val['stato_evento'] === $s) ? 'selected' : '' ?>>
@@ -453,11 +459,12 @@ require_once __DIR__ . '/../includes/admin_header.php';
             <small class="hint" id="prezzoHint">Lascia 0 per gratuito.</small>
         </div>
 
-        <!-- DB pulito: vuoto => NULL => informativo -->
         <div class="field">
             <label for="posti_totali">Posti totali</label>
             <input type="number" id="posti_totali" name="posti_totali" min="0" value="<?= e($val['posti_totali']) ?>" placeholder="(vuoto = informativo)">
-            <small class="hint" id="postiHint">Lascia vuoto per evento informativo (posti_totali NULL).</small>
+            <small class="hint" id="postiHint">Lascia vuoto per evento informativo.
+
+                .</small>
         </div>
 
         <div class="field">
@@ -467,7 +474,7 @@ require_once __DIR__ . '/../includes/admin_header.php';
                     <?= ($val['posti_totali'] === '') ? 'disabled' : '' ?>>
                 Prenotazione obbligatoria
             </label>
-            <small class="hint">Se evento informativo (posti vuoti), prenotazione è disattivata.</small>
+            <small class="hint">Se evento informativo, prenotazione è disattivata.</small>
         </div>
 
         <div class="field">

@@ -340,7 +340,7 @@ require_once __DIR__ . '/includes/header.php';
         <header class="panel-head">
             <div>
                 <h1 id="h-prenotati">Ciao <?= e($nomeUtente) ?> 👋</h1>
-                <p class="muted">I tuoi prossimi eventi prenotati (con countdown).</p>
+                <p class="muted">I tuoi prossimi eventi prenotati.</p>
             </div>
             <a class="btn" href="<?= base_url('eventi.php') ?>">Esplora eventi</a>
         </header>
@@ -392,7 +392,7 @@ require_once __DIR__ . '/includes/header.php';
         <header class="panel-head">
             <div>
                 <h2 id="h-storico">Storico eventi</h2>
-                <p class="muted">Eventi già conclusi a cui hai partecipato (restano nel sistema, non si cancellano).</p>
+                <p class="muted">Eventi già conclusi a cui hai partecipato.</p>
             </div>
         </header>
 

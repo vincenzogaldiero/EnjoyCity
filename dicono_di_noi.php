@@ -35,7 +35,7 @@ require_once __DIR__ . '/includes/header.php';
 
 <section class="page-head">
     <h1>Dicono di noi</h1>
-    <p class="muted">Qui trovi solo recensioni pubblicate dopo approvazione.</p>
+    <p class="muted">Qui trovi le recensioni dei nostri utenti registrati.</p>
 </section>
 
 <section class="card">

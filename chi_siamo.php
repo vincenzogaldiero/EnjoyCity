@@ -39,7 +39,7 @@ $ruolo  = $_SESSION['ruolo'] ?? null;
 
     <figure class="hero-media">
         <img src="<?= base_url('assets/img/avellino.jpg') ?>" alt="Panorama di Avellino" loading="lazy">
-        <figcaption class="muted">Avellino e Irpinia: il cuore del progetto.</figcaption>
+        <figcaption class="muted">Avellino: il cuore del progetto.</figcaption>
     </figure>
 </section>
 
@@ -62,17 +62,17 @@ $ruolo  = $_SESSION['ruolo'] ?? null;
 
 <section class="gallery" aria-label="Galleria immagini">
     <figure class="gallery-item">
-        <img src="<?= base_url('assets/img/irpinia.jpg') ?>" alt="Paesaggio dell’Irpinia" loading="lazy">
+        <img src="<?= base_url('assets/img/borghi.jpg') ?>" alt="Paesaggio dell’Irpinia" loading="lazy">
         <figcaption class="muted">Irpinia: natura, borghi, esperienze.</figcaption>
     </figure>
 
     <figure class="gallery-item">
-        <img src="<?= base_url('assets/img/logo_big.png') ?>" alt="Logo EnjoyCity" loading="lazy">
-        <figcaption class="muted">Identità visiva del progetto.</figcaption>
+        <img src="<?= base_url('assets/img/logo.png') ?>" alt="Logo EnjoyCity" loading="lazy">
+        <figcaption class="muted"> Logo </figcaption>
     </figure>
 
     <figure class="gallery-item">
-        <img src="<?= base_url('assets/img/avellino_2.jpg') ?>" alt="Scorcio urbano di Avellino" loading="lazy">
+        <img src="<?= base_url('assets/img/torre.jpg') ?>" alt="Scorcio urbano di Avellino" loading="lazy">
         <figcaption class="muted">Scopri la città con occhi nuovi.</figcaption>
     </figure>
 </section>

@@ -168,10 +168,6 @@ require_once __DIR__ . '/../includes/admin_header.php';
 <section class="card" aria-label="Gestione utenti">
     <header class="card-head">
         <h2>Utenti registrati</h2>
-        <p class="muted">
-            Blocco “smart”: puoi bloccare per 24h / 7g / 30g o permanente.
-            Gli utenti bloccati non possono prenotare né proporre eventi.
-        </p>
     </header>
 
     <div class="field" style="margin-top:12px;">
@@ -189,6 +185,9 @@ require_once __DIR__ . '/../includes/admin_header.php';
     <header class="card-head">
         <h2>Elenco</h2>
         <p class="muted">Suggerimento: apri “Prenotazioni” per vedere lo storico utente.</p>
+        <p class="muted">
+            Gli utenti bloccati non possono prenotare né proporre eventi.
+        </p>
     </header>
 
     <?php if (!$utenti): ?>
@@ -292,7 +291,7 @@ require_once __DIR__ . '/../includes/admin_header.php';
 
                     <div class="row-actions">
                         <?php if ($role === 'admin'): ?>
-                            <span class="muted">Admin (azioni disabilitate)</span>
+                            <span class="muted">Admin</span>
 
                         <?php elseif ($isBlockedNow): ?>
                             <form class="inline" method="post" action="<?= base_url('admin/admin_utenti.php') ?>">
