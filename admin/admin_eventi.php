@@ -1,17 +1,19 @@
 <?php
 // =========================================================
 // FILE: admin/admin_eventi.php
-// Scopo (area admin):
-// - Gestione completa eventi in 4 sezioni, in una sola pagina:
-//   1) Approvati in vigore (futuri, attivi, non archiviati)
-//   2) In attesa (moderazione)
-//   3) Rifiutati (storico moderazione)
-//   4) Conclusi (passati)
+// Area Admin - Gestione Eventi (pagina unica, sezioni chiare)
+//
+// Sezioni:
+// 1) LIVE        -> approvati, futuri, attivi, NON archiviati (online al pubblico)
+// 2) PENDING     -> in attesa (moderazione)
+// 3) REJECTED    -> rifiutati (storico moderazione)
+// 4) DONE        -> approvati, passati (audit / conclusi)
+// 5) ARCHIVED    -> approvati, archiviati (TRUE) (solo admin, non pubblico)
+//
 // Scelte didattiche:
-// - Separiamo MODERAZIONE (e.stato) dal LIFECYCLE (archiviato / stato_evento)
-// - Query parametrizzate con pg_query_params
-// - UX: pagina unica + sezioni chiare + azioni rapide per riga
-// - Pattern PRG: azioni POST gestite da admin_event_action.php
+// - separo MODERAZIONE (eventi.stato) dal LIFECYCLE (archiviato / stato_evento)
+// - query parametrizzate con pg_query_params
+// - PRG: azioni POST -> admin_event_action.php -> redirect
 // =========================================================
 
 ini_set('display_errors', 1);
@@ -62,14 +64,12 @@ function fetch_all_rows($conn, string $sql, array $params = []): array
 // ---------------------------------------------------------
 // Helper: costruisce filtro di ricerca parametrizzato
 // - ritorna [sql_fragment, params]
-// - evita problemi se un domani aggiungi altri parametri
+// - startIndex serve se in futuro aggiungi altri parametri
 // ---------------------------------------------------------
 function build_search_condition(string $q, int $startIndex = 1): array
 {
     if ($q === '') return ['', []];
 
-    // NOTA: uso ILIKE per case-insensitive, coerente col resto
-    // startIndex permette composizione pulita se aggiungi altri filtri
     $ph = '$' . $startIndex;
     $cond = " AND (e.titolo ILIKE {$ph} OR e.luogo ILIKE {$ph}) ";
     $params = ['%' . $q . '%'];
@@ -82,7 +82,7 @@ function build_search_condition(string $q, int $startIndex = 1): array
 // =========================================================
 list($condQ, $paramsQ) = build_search_condition($q, 1);
 
-// query base (stessa SELECT per coerenza UI)
+// SELECT base (coerente per tutte le sezioni)
 $selectBase = "
   SELECT e.id, e.titolo, e.data_evento, e.luogo,
          e.prezzo, e.prenotazione_obbligatoria,
@@ -117,8 +117,8 @@ $sql_rejected = $selectBase . "
   ORDER BY e.data_evento DESC;
 ";
 
-// 4) DONE: conclusi (approvati passati)
-// Nota: li mostriamo sempre per audit, anche se archiviati/annullati
+// 4) DONE: approvati passati (audit)
+// Nota: qui non filtro archiviato/annullato: è storico.
 $sql_done = $selectBase . "
   WHERE e.stato = 'approvato'
     AND e.data_evento < NOW()
@@ -126,11 +126,21 @@ $sql_done = $selectBase . "
   ORDER BY e.data_evento DESC;
 ";
 
+// 5) ARCHIVED: approvati archiviati (TRUE)
+// Qui li vogliamo SEMPRE visibili all’admin, futuri o passati.
+$sql_archived = $selectBase . "
+  WHERE e.stato = 'approvato'
+    AND e.archiviato = TRUE
+    {$condQ}
+  ORDER BY e.data_evento DESC;
+";
+
 // Eseguo query
-$eventi_live     = fetch_all_rows($conn, $sql_live, $paramsQ);
-$eventi_pending  = fetch_all_rows($conn, $sql_pending, $paramsQ);
-$eventi_rejected = fetch_all_rows($conn, $sql_rejected, $paramsQ);
-$eventi_done     = fetch_all_rows($conn, $sql_done, $paramsQ);
+$eventi_live      = fetch_all_rows($conn, $sql_live, $paramsQ);
+$eventi_pending   = fetch_all_rows($conn, $sql_pending, $paramsQ);
+$eventi_rejected  = fetch_all_rows($conn, $sql_rejected, $paramsQ);
+$eventi_done      = fetch_all_rows($conn, $sql_done, $paramsQ);
+$eventi_archived  = fetch_all_rows($conn, $sql_archived, $paramsQ);
 
 db_close($conn);
 
@@ -140,16 +150,13 @@ require_once __DIR__ . '/../includes/admin_header.php';
 // 5) Render helpers (UI)
 // =========================================================
 
-// true/false postgres safe
+// boolean postgres safe
 function is_true_pg_local($v): bool
 {
     return ($v === 't' || $v === true || $v === '1' || $v === 1);
 }
 
-// ---------------------------------------------------------
 // Render pulsante azione (POST verso admin_event_action.php)
-// - data-confirm (se nel tuo JS lo gestisci) evita click accidentali
-// ---------------------------------------------------------
 function render_action_btn(int $id, string $azione, string $label, string $class = 'btn'): void
 {
     $confirm = "Confermi azione '{$azione}' su evento #{$id}?";
@@ -162,10 +169,7 @@ function render_action_btn(int $id, string $azione, string $label, string $class
 <?php
 }
 
-// ---------------------------------------------------------
 // Render riga evento (riuso UI + azioni rapide)
-// $section: serve per mostrare solo i bottoni sensati
-// ---------------------------------------------------------
 function render_event_row(array $ev, string $section): void
 {
     $id = (int)($ev['id'] ?? 0);
@@ -175,11 +179,11 @@ function render_event_row(array $ev, string $section): void
     $postiPren = (int)($ev['posti_prenotati'] ?? 0);
     $postiTot  = $isInfo ? null : (int)$ev['posti_totali'];
 
-    $st = (string)($ev['stato'] ?? '');
-    $prenObbl = is_true_pg_local($ev['prenotazione_obbligatoria'] ?? 'f');
-
+    $st   = (string)($ev['stato'] ?? '');
     $arch = is_true_pg_local($ev['archiviato'] ?? 'f');
     $stEv = (string)($ev['stato_evento'] ?? 'attivo');
+
+    $prenObbl = is_true_pg_local($ev['prenotazione_obbligatoria'] ?? 'f');
 
     // classi UI
     $rowClass = "row";
@@ -216,11 +220,11 @@ function render_event_row(array $ev, string $section): void
         </div>
 
         <div class="row-actions" style="flex-wrap:wrap;">
-            <!-- Azioni "sempre" disponibili -->
+            <!-- Azioni sempre disponibili -->
             <a class="btn btn-ghost" href="<?= e(base_url('evento.php?id=' . $id)) ?>">Apri</a>
             <a class="btn btn-admin" href="<?= e(base_url('admin/admin_event_edit.php?id=' . $id)) ?>">Modifica</a>
 
-            <!-- Azioni rapide contestuali -->
+            <!-- Azioni contestuali per sezione -->
             <?php if ($section === 'pending'): ?>
                 <?php render_action_btn($id, 'approva', 'Approva', 'btn btn-ok'); ?>
                 <?php render_action_btn($id, 'rifiuta', 'Rifiuta', 'btn btn-danger'); ?>
@@ -233,6 +237,10 @@ function render_event_row(array $ev, string $section): void
                     <?php render_action_btn($id, 'riattiva', 'Riattiva', 'btn btn-ok'); ?>
                 <?php endif; ?>
 
+                <?php render_action_btn($id, 'archivia', 'Archivia', 'btn btn-ghost'); ?>
+            <?php endif; ?>
+
+            <?php if ($section === 'done'): ?>
                 <?php if (!$arch): ?>
                     <?php render_action_btn($id, 'archivia', 'Archivia', 'btn btn-ghost'); ?>
                 <?php else: ?>
@@ -240,17 +248,15 @@ function render_event_row(array $ev, string $section): void
                 <?php endif; ?>
             <?php endif; ?>
 
-            <?php if ($section === 'done'): ?>
-                <!-- Su conclusi ha senso archivia/ripristina -->
-                <?php if (!$arch): ?>
-                    <?php render_action_btn($id, 'archivia', 'Archivia', 'btn btn-ghost'); ?>
-                <?php else: ?>
-                    <?php render_action_btn($id, 'ripristina', 'Ripristina', 'btn btn-ok'); ?>
+            <?php if ($section === 'archived'): ?>
+                <?php render_action_btn($id, 'ripristina', 'Ripristina', 'btn btn-ok'); ?>
+                <?php if ($stEv === 'attivo'): ?>
+                    <?php render_action_btn($id, 'annulla', 'Annulla', 'btn btn-danger'); ?>
                 <?php endif; ?>
             <?php endif; ?>
 
             <?php if ($section === 'rejected'): ?>
-                <!-- Su rifiutati, eventuale ripristino (solo se vuoi recuperarlo) -->
+                <!-- Di solito sui rifiutati non fai lifecycle, ma se vuoi puoi mettere ripristina solo se archiviato -->
                 <?php if ($arch): ?>
                     <?php render_action_btn($id, 'ripristina', 'Ripristina', 'btn btn-ok'); ?>
                 <?php endif; ?>
@@ -269,7 +275,7 @@ function render_event_row(array $ev, string $section): void
 <?php endif; ?>
 
 <!-- =====================================================
-     NAV rapido sezioni (UX + accessibilità)
+     NAV rapido sezioni
 ===================================================== -->
 <section class="card" aria-label="Navigazione rapida">
     <header class="card-head">
@@ -281,6 +287,7 @@ function render_event_row(array $ev, string $section): void
         <a class="btn btn-ghost" href="#pending">In attesa (<?= count($eventi_pending) ?>)</a>
         <a class="btn btn-ghost" href="#rejected">Rifiutati (<?= count($eventi_rejected) ?>)</a>
         <a class="btn btn-ghost" href="#done">Conclusi (<?= count($eventi_done) ?>)</a>
+        <a class="btn btn-ghost" href="#archived">Archiviati (<?= count($eventi_archived) ?>)</a>
 
         <span style="flex:1;"></span>
 
@@ -318,6 +325,7 @@ function render_event_row(array $ev, string $section): void
 <section class="card" id="live" aria-label="Eventi approvati in vigore">
     <header class="card-head">
         <h2>Approvati e attivi</h2>
+        <p class="muted">Online al pubblico: futuri, attivi, non archiviati.</p>
     </header>
 
     <?php if (!$eventi_live): ?>
@@ -371,7 +379,7 @@ function render_event_row(array $ev, string $section): void
 <section class="card" id="done" aria-label="Eventi conclusi">
     <header class="card-head">
         <h2>Conclusi</h2>
-        <p class="muted">Eventi passati.</p>
+        <p class="muted">Eventi passati (audit). Possono essere anche annullati o archiviati.</p>
     </header>
 
     <?php if (!$eventi_done): ?>
@@ -379,6 +387,24 @@ function render_event_row(array $ev, string $section): void
     <?php else: ?>
         <div class="list">
             <?php foreach ($eventi_done as $ev) render_event_row($ev, 'done'); ?>
+        </div>
+    <?php endif; ?>
+</section>
+
+<!-- =====================================================
+     5) Archived
+===================================================== -->
+<section class="card" id="archived" aria-label="Eventi archiviati">
+    <header class="card-head">
+        <h2>Archiviati</h2>
+        <p class="muted">Non visibili al pubblico. Restano nel DB per storico e audit.</p>
+    </header>
+
+    <?php if (!$eventi_archived): ?>
+        <p class="muted" style="margin-top:12px;">Nessun evento archiviato.</p>
+    <?php else: ?>
+        <div class="list">
+            <?php foreach ($eventi_archived as $ev) render_event_row($ev, 'archived'); ?>
         </div>
     <?php endif; ?>
 </section>
