@@ -215,24 +215,6 @@ $page_title = "Area personale - EnjoyCity";
 
       <div class="section-actions">
         <a class="btn" href="<?= base_url('eventi.php') ?>">Esplora eventi</a>
-
-        <!-- Toggle vista eventi (cards / list) -->
-        <form method="post" class="view-toggle">
-          <button
-            type="submit"
-            name="view_mode"
-            value="cards"
-            class="btn btn-ghost <?= $view_mode === 'cards' ? 'is-active' : '' ?>">
-            Vista griglia
-          </button>
-          <button
-            type="submit"
-            name="view_mode"
-            value="list"
-            class="btn btn-ghost <?= $view_mode === 'list' ? 'is-active' : '' ?>">
-            Vista lista
-          </button>
-        </form>
       </div>
     </header>
 

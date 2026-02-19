@@ -381,7 +381,7 @@ $cls_blocc    = $kpi_bloccati         > 0 ? 'kpi-card kpi-card--danger' : 'kpi-c
             <section class="card" aria-label="Eventi da approvare">
                 <header class="card-head">
                     <h2>
-                        Eventi da approvare
+                        Eventi in attesa
                         <?php if ($kpi_eventi_attesa > 0): ?>
                             <span class="admin-badge"><?= (int)$kpi_eventi_attesa ?></span>
                         <?php endif; ?>
@@ -518,7 +518,7 @@ $cls_blocc    = $kpi_bloccati         > 0 ? 'kpi-card kpi-card--danger' : 'kpi-c
 
                         <div class="row-actions" style="flex-wrap:wrap;">
                             <a class="btn btn-admin" href="<?= base_url('admin/admin_event_edit.php?id=' . $id) ?>">Modifica</a>
-                            <a class="btn btn-ghost" href="<?= base_url('evento.php?id=' . $id) ?>">Apri pubblico</a>
+                            <a class="btn btn-ghost" href="<?= base_url('evento.php?id=' . $id) ?>">Apri</a>
                             <?php render_action_btn($id, 'annulla', 'Annulla', 'btn btn-danger'); ?>
                             <?php render_action_btn($id, 'archivia', 'Archivia', 'btn btn-ghost'); ?>
                         </div>
@@ -574,7 +574,7 @@ $cls_blocc    = $kpi_bloccati         > 0 ? 'kpi-card kpi-card--danger' : 'kpi-c
                         </div>
 
                         <div class="row-actions" style="flex-wrap:wrap;">
-                            <a class="btn btn-ghost" href="<?= base_url('evento.php?id=' . $id) ?>">Apri pubblico</a>
+                            <a class="btn btn-ghost" href="<?= base_url('evento.php?id=' . $id) ?>">Apri</a>
                             <a class="btn btn-admin" href="<?= base_url('admin/admin_event_edit.php?id=' . $id) ?>">Modifica</a>
                             <?php render_action_btn($id, 'ripristina', 'Ripristina', 'btn btn-ok'); ?>
                         </div>
