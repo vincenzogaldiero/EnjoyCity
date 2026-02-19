@@ -1,16 +1,7 @@
 <?php
 // =========================================================
 // FILE: admin/admin_event_edit.php
-// Scopo didattico:
-// - Form Admin per modifica evento
-// - Validazioni server-side (sempre!)
-// - Coerenza con stato evento:
-//   - stato: approvato / in_attesa / rifiutato (moderazione)
-//   - stato_evento: attivo / annullato (stato evento operativo)
-//   - archiviato: true/false (soft delete / storico)
-// - DB pulito per eventi informativi:
-//   - posti_totali = NULL => informativo (no prenotazioni)
-//   - posti_totali > 0    => a posti limitati
+// Scopo didattico: form Admin per modifica evento
 // =========================================================
 
 ini_set('display_errors', 1);
@@ -42,8 +33,7 @@ function is_true_pg($v): bool
 }
 
 // ---------------------------------------------------------
-// Utility: escape output
-// (se non hai già e() nel tuo progetto, lascialo qui)
+// Utility: escape output (se non esiste già e())
 // ---------------------------------------------------------
 if (!function_exists('e')) {
     function e($s): string
@@ -91,24 +81,24 @@ if (!$evento) {
 // - posti_totali NULL => informativo => campo vuoto nel form
 // ---------------------------------------------------------
 $val = [
-    'titolo' => (string)($evento['titolo'] ?? ''),
-    'descrizione_breve' => (string)($evento['descrizione_breve'] ?? ''),
-    'descrizione_lunga' => (string)($evento['descrizione_lunga'] ?? ''),
-    'data_evento' => '',
-    'luogo' => (string)($evento['luogo'] ?? ''),
-    'categoria_id' => (string)($evento['categoria_id'] ?? ''),
-    'latitudine' => ($evento['latitudine'] === null ? '' : (string)$evento['latitudine']),
-    'longitudine' => ($evento['longitudine'] === null ? '' : (string)$evento['longitudine']),
-    'prezzo' => (string)($evento['prezzo'] ?? '0.00'),
+    'titolo'                    => (string)($evento['titolo'] ?? ''),
+    'descrizione_breve'         => (string)($evento['descrizione_breve'] ?? ''),
+    'descrizione_lunga'         => (string)($evento['descrizione_lunga'] ?? ''),
+    'data_evento'               => '',
+    'luogo'                     => (string)($evento['luogo'] ?? ''),
+    'categoria_id'              => (string)($evento['categoria_id'] ?? ''),
+    'latitudine'                => ($evento['latitudine'] === null ? '' : (string)$evento['latitudine']),
+    'longitudine'               => ($evento['longitudine'] === null ? '' : (string)$evento['longitudine']),
+    'prezzo'                    => (string)($evento['prezzo'] ?? '0.00'),
 
     // DB pulito: NULL => informativo => mostro vuoto
-    'posti_totali' => ($evento['posti_totali'] === null ? '' : (string)$evento['posti_totali']),
+    'posti_totali'              => ($evento['posti_totali'] === null ? '' : (string)$evento['posti_totali']),
 
     'prenotazione_obbligatoria' => is_true_pg($evento['prenotazione_obbligatoria'] ?? false) ? '1' : '0',
-    'stato' => (string)($evento['stato'] ?? 'in_attesa'),
+    'stato'                     => (string)($evento['stato'] ?? 'in_attesa'),
 
-    'stato_evento' => (string)($evento['stato_evento'] ?? 'attivo'),
-    'archiviato' => is_true_pg($evento['archiviato'] ?? false) ? '1' : '0',
+    'stato_evento'              => (string)($evento['stato_evento'] ?? 'attivo'),
+    'archiviato'                => is_true_pg($evento['archiviato'] ?? false) ? '1' : '0',
 ];
 
 // timestamp -> datetime-local
@@ -142,10 +132,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $luogo  = $val['luogo'];
     $catRaw = $val['categoria_id'];
 
-    $stato  = $val['stato'];              // moderazione
-    $stato_evento = $val['stato_evento']; // stato evento
+    $stato        = $val['stato'];         // moderazione
+    $stato_evento = $val['stato_evento'];  // stato evento
 
-    // ✅ FIX: archiviato sempre come boolean PG ('t'/'f')
+    // boolean PG per archiviato
     $archiviato_pg = ($val['archiviato'] === '1') ? 't' : 'f';
 
     // 6.3 validazioni testi e select
@@ -202,7 +192,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $postiTotali = null; // informativo
         } else {
             if (!ctype_digit($raw) || (int)$raw < 0) {
-                $errore = "Posti totali deve essere un intero >= 0. Lascia vuoto per evento informativo.";
+                $errore = "Posti totali deve essere un intero ≥ 0. Lascia vuoto per evento informativo.";
             } else {
                 $n = (int)$raw;
                 $postiTotali = ($n === 0) ? null : $n;
@@ -211,7 +201,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     // 6.8 prenotazione_obbligatoria coerente
-    // - se informativo => disattivo
     $pren_bool = ($val['prenotazione_obbligatoria'] === '1') ? 't' : 'f';
     if ($postiTotali === null) {
         $pren_bool = 'f';
@@ -323,12 +312,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $latF,
             $lonF,
             (float)$prezzo,
-            $postiTotali,        // NULL => informativo
-            $pren_bool,          // 't'/'f'
+            $postiTotali,   // NULL => informativo
+            $pren_bool,     // 't'/'f'
             $categoria_id,
             $stato,
             $stato_evento,
-            $archiviato_pg,      // ✅ 't'/'f'
+            $archiviato_pg, // 't'/'f'
             $event_id
         ];
 
@@ -337,7 +326,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!$resUp) {
             $errore = "Errore DB: " . pg_last_error($conn);
         } else {
-            // PRG: flash + redirect
             $_SESSION['flash_ok'] = "Evento aggiornato correttamente (ID: $event_id).";
             db_close($conn);
             header("Location: " . base_url("admin/admin_eventi.php"));
@@ -375,7 +363,8 @@ require_once __DIR__ . '/../includes/admin_header.php';
         </figure>
     <?php endif; ?>
 
-    <form id="formEditEvento" class="auth-form"
+    <!-- NB: id = formProponiEvento per riusare assets/js/proponi_evento.js -->
+    <form id="formProponiEvento" class="auth-form"
         action="<?= e(base_url('admin/admin_event_edit.php?id=' . $event_id)) ?>"
         method="POST" enctype="multipart/form-data" novalidate>
 
@@ -461,33 +450,48 @@ require_once __DIR__ . '/../includes/admin_header.php';
 
         <div class="field">
             <label for="posti_totali">Posti totali</label>
-            <input type="number" id="posti_totali" name="posti_totali" min="0" value="<?= e($val['posti_totali']) ?>" placeholder="(vuoto = informativo)">
-            <small class="hint" id="postiHint">Lascia vuoto per evento informativo.
-
-                .</small>
+            <input type="number" id="posti_totali" name="posti_totali" min="0"
+                value="<?= e($val['posti_totali']) ?>" placeholder="(vuoto = informativo)">
+            <small class="hint" id="postiHint">Lascia vuoto per evento informativo.</small>
         </div>
 
-        <div class="field">
-            <label class="checkbox">
+        <!-- Prenotazione obbligatoria: stessa UX dell'add -->
+        <div class="field checkbox-row">
+            <label for="prenotazione_obbligatoria">Prenotazione obbligatoria</label>
+
+            <div class="checkbox-control">
                 <input type="checkbox" id="prenotazione_obbligatoria" name="prenotazione_obbligatoria"
                     <?= ($val['prenotazione_obbligatoria'] === '1') ? 'checked' : '' ?>
                     <?= ($val['posti_totali'] === '') ? 'disabled' : '' ?>>
-                Prenotazione obbligatoria
-            </label>
-            <small class="hint">Se evento informativo, prenotazione è disattivata.</small>
+                <span>Attiva prenotazione</span>
+            </div>
+
+            <small class="hint">Se evento informativo, la prenotazione è disattivata.</small>
         </div>
 
+        <!-- Geolocalizzazione: stessa struttura dell'add -->
         <div class="field">
-            <label for="latitudine">Latitudine (opzionale)</label>
-            <input type="text" id="latitudine" name="latitudine" inputmode="decimal" value="<?= e($val['latitudine']) ?>">
-            <small class="hint" id="latHint"></small>
-        </div>
+            <label>Geolocalizzazione (opzionale)</label>
 
-        <div class="field">
-            <label for="longitudine">Longitudine (opzionale)</label>
-            <input type="text" id="longitudine" name="longitudine" inputmode="decimal" value="<?= e($val['longitudine']) ?>">
-            <button type="button" class="btn-search" id="btn-geo-evento" style="margin-top:6px;">Usa la mia posizione</button>
-            <small class="hint" id="geoHint"></small>
+            <div class="geo-row">
+                <div class="geo-col">
+                    <input type="text" id="latitudine" name="latitudine"
+                        inputmode="decimal" placeholder="Latitudine"
+                        value="<?= e($val['latitudine']) ?>">
+                    <small class="hint" id="latHint"></small>
+                </div>
+
+                <div class="geo-col">
+                    <input type="text" id="longitudine" name="longitudine"
+                        inputmode="decimal" placeholder="Longitudine"
+                        value="<?= e($val['longitudine']) ?>">
+                    <small class="hint" id="geoHint"></small>
+                </div>
+
+                <button type="button" class="btn-search" id="btn-geo-evento">
+                    Usa la mia posizione
+                </button>
+            </div>
         </div>
 
         <div class="field">
@@ -503,7 +507,7 @@ require_once __DIR__ . '/../includes/admin_header.php';
     </form>
 </section>
 
-<!-- JS: usi il tuo script per geo + validazioni -->
-<script src="<?= e(base_url('assets/js/proponi_evento.js')) ?>"></script>
+<!-- JS: stesso script per geo + validazioni -->
+<script defer src="<?= e(base_url('assets/js/proponi_evento.js')) ?>"></script>
 
 <?php require_once __DIR__ . '/../includes/admin_footer.php'; ?>

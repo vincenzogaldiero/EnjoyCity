@@ -8,7 +8,7 @@
 //   3) "Eventi in evidenza" (popolarità = posti_prenotati)
 // Regola professionale:
 // - Gli eventi passati RESTANO nel DB (storico/audit),
-//   ma nel pubblico mostro SOLO eventi "in vigore".
+//   ma nel pubblico mostro SOLO eventi "attivi".
 // Coerenza DB pulito:
 // - Moderazione: e.stato = 'approvato' (admin)
 // - Lifecycle:   e.archiviato=false + e.stato_evento='attivo'
@@ -160,7 +160,7 @@ $placeholder = base_url('assets/img/event-placeholder.jpg');
     <!-- =====================================================
          1) TICKER: PROSSIMI EVENTI
          Nota per la prof:
-         - lista pubblica: SOLO eventi in vigore (futuri/attivi/non archiviati/approvati)
+         - lista pubblica: SOLO eventi attivi (futuri/attivi/non archiviati/approvati)
          - click -> login (non loggato)
     ====================================================== -->
     <section class="ticker-card" aria-labelledby="prossimi-title">
@@ -280,7 +280,7 @@ $placeholder = base_url('assets/img/event-placeholder.jpg');
          3) EVENTI IN EVIDENZA (HOT)
          Nota per la prof:
          - Selezionati con ORDER BY posti_prenotati DESC
-         - Sempre e solo "in vigore" grazie a $whereSql
+         - Sempre e solo "attivi" grazie a $whereSql
     ====================================================== -->
     <section aria-labelledby="evidenza-title">
         <div class="section-title">

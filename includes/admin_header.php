@@ -86,8 +86,11 @@ $admin_name = trim((string)($_SESSION['nome'] ?? '')) ?: 'Admin';
             <nav class="admin-top-actions" aria-label="Azioni admin">
 
                 <a class="btn btn-ghost" href="<?= e(base_url('index.php')) ?>">Vai al sito</a>
-                <a class="btn btn-danger" href="<?= e(base_url('logout.php')) ?>"
-                    data-confirm="Sei sicuro di voler uscire?">Logout</a>
+                <a class="btn btn-danger"
+                    href="<?= e(base_url('logout.php')) ?>"
+                    onclick="return confirm('Sei sicuro di voler uscire?');">
+                    Logout
+                </a>
             </nav>
 
         </div>

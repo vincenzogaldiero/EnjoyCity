@@ -5,7 +5,7 @@ error_reporting(E_ALL);
 
 require_once __DIR__ . '/includes/config.php'; // include già session_start()
 
-// Solo user loggato
+// Solo user loggato (non admin)
 if (!isset($_SESSION['logged']) || $_SESSION['logged'] !== true) {
   header("Location: " . base_url('login.php'));
   exit;
@@ -27,10 +27,32 @@ $flash_ok  = '';
 $flash_err = '';
 
 /* =========================================
+   COOKIE PREFERENZA VISTA EVENTI (utente loggato)
+   - ec_viewmode_<user_id> = 'cards' | 'list'
+   ========================================= */
+$viewCookieName = 'ec_viewmode_' . $user_id;
+
+// Lettura cookie (default "cards")
+$view_mode = $_COOKIE[$viewCookieName] ?? 'cards';
+
+// Se arriva un POST per cambiare SOLO la vista
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['view_mode'])) {
+  $mode = $_POST['view_mode'] === 'list' ? 'list' : 'cards'; // fallback 'cards'
+  $expire = time() + (60 * 60 * 24 * 30); // 30 giorni
+
+  // Cookie valido per tutto il sito
+  setcookie($viewCookieName, $mode, $expire, '/');
+
+  // PRG: evito il resubmit del form
+  header("Location: " . base_url('area_personale.php'));
+  exit;
+}
+
+/* =========================================
    POST: Salvataggio preferenze (lista DESTRA)
    ordine_preferite = "3,1,5"
    ========================================= */
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ordine_preferite'])) {
 
   $ordine_raw = trim((string)($_POST['ordine_preferite'] ?? ''));
 
@@ -71,7 +93,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $resCheck = pg_query_params($conn, "SELECT id FROM categorie WHERE id IN ($in);", $params);
       $found = [];
       if ($resCheck) {
-        while ($r = pg_fetch_assoc($resCheck)) $found[(int)$r['id']] = true;
+        while ($r = pg_fetch_assoc($resCheck)) {
+          $found[(int)$r['id']] = true;
+        }
       }
 
       foreach ($ids as $catId) {
@@ -168,7 +192,9 @@ $sqlMy = "
 ";
 $resMy = pg_query_params($conn, $sqlMy, [$user_id]);
 if ($resMy) {
-  while ($row = pg_fetch_assoc($resMy)) $miei_eventi[] = $row;
+  while ($row = pg_fetch_assoc($resMy)) {
+    $miei_eventi[] = $row;
+  }
 }
 
 db_close($conn);
@@ -186,7 +212,28 @@ $page_title = "Area personale - EnjoyCity";
         <h2>Area personale</h2>
         <p class="muted">Gestisci prenotazioni e preferenze (trascina a destra ciò che ti interessa).</p>
       </div>
-      <a class="btn" href="<?= base_url('eventi.php') ?>">Esplora eventi</a>
+
+      <div class="section-actions">
+        <a class="btn" href="<?= base_url('eventi.php') ?>">Esplora eventi</a>
+
+        <!-- Toggle vista eventi (cards / list) -->
+        <form method="post" class="view-toggle">
+          <button
+            type="submit"
+            name="view_mode"
+            value="cards"
+            class="btn btn-ghost <?= $view_mode === 'cards' ? 'is-active' : '' ?>">
+            Vista griglia
+          </button>
+          <button
+            type="submit"
+            name="view_mode"
+            value="list"
+            class="btn btn-ghost <?= $view_mode === 'list' ? 'is-active' : '' ?>">
+            Vista lista
+          </button>
+        </form>
+      </div>
     </header>
 
     <?php if ($flash_ok !== ''): ?>
@@ -200,7 +247,7 @@ $page_title = "Area personale - EnjoyCity";
     <section class="area-grid" aria-label="Pannelli area personale">
 
       <!-- PANNELLO EVENTI -->
-      <article class="card">
+      <article class="card area-events area-events-<?= e($view_mode) ?>">
         <div class="card-body">
           <h3>🎫 I tuoi prossimi eventi</h3>
 

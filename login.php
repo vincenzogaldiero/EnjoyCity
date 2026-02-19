@@ -1,5 +1,10 @@
 <?php
 // FILE: login.php
+// Scopo didattico:
+// - Login utente con sessioni PHP
+// - Controllo credenziali con password_hash/password_verify
+// - Gestione blocco account (user_is_blocked)
+// - Cookie "remember_email" per ricordare l'email per 30 giorni
 
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
@@ -7,17 +12,30 @@ error_reporting(E_ALL);
 
 require_once __DIR__ . '/includes/config.php';
 
-if (session_status() === PHP_SESSION_NONE) session_start();
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 
 $page_title = "Accedi - EnjoyCity";
-$errore = "";
+$errore     = "";
 
 $conn = db_connect();
+
+// ---------------------------------------------------------
+// COOKIE "remember_email"
+// - Se il login va a buon fine e l'utente spunta la checkbox,
+//   salvo l'email per 30 giorni.
+// - In caso contrario, lo elimino.
+// ---------------------------------------------------------
+
+// Valore di default per il campo email (sticky + cookie)
+$old_email = (string)($_POST['email'] ?? ($_COOKIE['remember_email'] ?? ''));
 
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
     $email    = trim((string)($_POST['email'] ?? ''));
     $password = (string)($_POST['password'] ?? '');
+    $remember = isset($_POST['remember_email']);   // checkbox "Ricorda la mia email"
 
     if ($email === '' || $password === '') {
         $errore = "Inserisci sia email che password.";
@@ -38,7 +56,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
             if ($user && password_verify($password, (string)$user['password'])) {
 
-                $uid = (int)$user['id'];
+                $uid   = (int)$user['id'];
                 $block = user_is_blocked($conn, $uid);
 
                 if ($block['blocked']) {
@@ -48,6 +66,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                         $errore = "Il tuo account è stato bloccato. Contatta l'amministratore.";
                     }
                 } else {
+                    // Login corretto
                     session_regenerate_id(true);
 
                     $_SESSION['logged']      = true;
@@ -55,8 +74,22 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                     $_SESSION['nome_utente'] = (string)$user['nome'];
                     $_SESSION['ruolo']       = (string)$user['ruolo'];
 
+                    // ---------------------------------------------
+                    // Gestione COOKIE "remember_email"
+                    // ---------------------------------------------
+                    if ($remember && $email !== '') {
+                        // Cookie persistente: 30 giorni
+                        $expire = time() + (60 * 60 * 24 * 30);
+                        // path "/" per renderlo valido su tutto il sito
+                        setcookie('remember_email', $email, $expire, '/');
+                    } else {
+                        // Se la checkbox non è spuntata, lo cancello
+                        setcookie('remember_email', '', time() - 3600, '/');
+                    }
+
                     db_close($conn);
 
+                    // Redirect in base al ruolo
                     if ($_SESSION['ruolo'] === 'admin') {
                         header("Location: " . base_url('admin/admin_dashboard.php'));
                         exit;
@@ -102,7 +135,7 @@ db_close($conn);
                     name="email"
                     autocomplete="email"
                     required
-                    value="<?= htmlspecialchars((string)($_POST['email'] ?? ''), ENT_QUOTES, 'UTF-8') ?>">
+                    value="<?= htmlspecialchars($old_email, ENT_QUOTES, 'UTF-8') ?>">
                 <small class="hint" id="emailHint"></small>
             </div>
 
@@ -118,10 +151,21 @@ db_close($conn);
                 <small class="hint" id="passwordHint"></small>
             </div>
 
+            <div class="field field-inline">
+                <label>
+                    <input
+                        type="checkbox"
+                        name="remember_email"
+                        <?php if (!empty($old_email)) echo 'checked'; ?>>
+                    Ricorda la mia email
+                </label>
+            </div>
+
             <button type="submit" class="btn btn-primary w-100">Entra</button>
 
             <p class="auth-links">
-                Non hai un account? <a href="registrazione.php" class="auth-links">Registrati</a>
+                Non hai un account?
+                <a href="registrazione.php" class="auth-links">Registrati</a>
             </p>
         </form>
     </div>

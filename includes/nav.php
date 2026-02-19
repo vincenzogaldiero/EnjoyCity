@@ -169,9 +169,10 @@ if ($logged && $ruolo !== 'admin') {
                 <!-- Logout -->
                 <a class="btn logout-link"
                     href="<?= base_url('logout.php') ?>"
-                    data-confirm="Sei sicuro di voler uscire?">
+                    onclick="return confirm('Sei sicuro di voler uscire?');">
                     Logout
                 </a>
+
 
             <?php endif; ?>
 
