@@ -1,12 +1,15 @@
 <?php
 // FILE: dicono_di_noi.php
 
+// Caricamento configurazione e avvio sessione (se non già attiva)
 require_once __DIR__ . '/includes/config.php';
 if (session_status() === PHP_SESSION_NONE) session_start();
 
+// Metadati della pagina
 $page_title = "Dicono di noi - EnjoyCity";
 $page_desc  = "Recensioni degli utenti pubblicate dopo approvazione.";
 
+// Connessione al database e recupero recensioni approvate
 $conn = db_connect();
 
 $recensioni = [];
@@ -28,16 +31,25 @@ $res = pg_query($conn, $sql);
 if ($res) {
     while ($row = pg_fetch_assoc($res)) $recensioni[] = $row;
 }
+
+// Chiusura della connessione al database
 db_close($conn);
 
+// Inclusione dell'header del sito
 require_once __DIR__ . '/includes/header.php';
 ?>
 
+<!-- ==============================
+     Intestazione pagina recensioni
+=============================== -->
 <section class="page-head">
     <h1>Dicono di noi</h1>
     <p class="muted">Qui trovi le recensioni dei nostri utenti registrati.</p>
 </section>
 
+<!-- ===================================
+     Sezione elenco recensioni approvate
+==================================== -->
 <section class="card">
     <h2>Recensioni</h2>
 
@@ -47,6 +59,7 @@ require_once __DIR__ . '/includes/header.php';
         <div class="reviews" aria-label="Elenco recensioni approvate">
             <?php foreach ($recensioni as $r): ?>
                 <?php
+                // Preparazione dati recensione
                 $voto = (int)($r['voto'] ?? 0);
                 $nome = trim((string)($r['nome'] ?? ''));
                 $cognome = trim((string)($r['cognome'] ?? ''));
@@ -76,4 +89,7 @@ require_once __DIR__ . '/includes/header.php';
     <?php endif; ?>
 </section>
 
-<?php require_once __DIR__ . '/includes/footer.php'; ?>
+<?php 
+// Inclusione del footer del sito
+require_once __DIR__ . '/includes/footer.php'; 
+?>

@@ -4,7 +4,7 @@
 // Avvio sessione e caricamento configurazione
 require_once __DIR__ . '/includes/config.php';
 
-$page_title = "EnjoyCity - Turista nella tua provincia";
+$page_title = "EnjoyCity - Turista nella tua provincia";     // metadato
 
 // Connessione al database
 $conn = db_connect();

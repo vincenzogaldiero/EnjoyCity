@@ -1,7 +1,8 @@
 <?php
-// Caricamento configurazione e metadati della pagina
+// Caricamento configurazione
 require_once __DIR__ . '/includes/config.php';
 
+// Metadati della pagina
 $page_title = "Contatti - EnjoyCity";
 $page_desc  = "Contatti e informazioni utili del progetto EnjoyCity.";
 

@@ -12,7 +12,7 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-$page_title = "Registrazione - EnjoyCity";
+$page_title = "Registrazione - EnjoyCity";     // metadato
 
 // Inizializzazione variabili
 $nome = "";
