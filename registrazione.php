@@ -14,7 +14,7 @@ if (session_status() === PHP_SESSION_NONE) {
 
 $page_title = "Registrazione - EnjoyCity";
 
-//Inizializzazione variabili
+// Inizializzazione variabili
 $nome = "";
 $cognome = "";
 $email = "";
@@ -75,8 +75,13 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 db_close($conn);
 ?>
 
+<!-- Inclusione dell'header del sito -->
 <?php require_once __DIR__ . '/includes/header.php'; ?>
 
+<!-- =====================================================
+     Sezione registrazione utente (non loggato)
+     Contiene il form per la creazione di un nuovo account
+====================================================== -->
 <section class="auth">
     <div class="auth-card">
         <header class="auth-head">
@@ -84,7 +89,8 @@ db_close($conn);
             <h1>Crea il tuo account</h1>
             <p>Compila i campi per registrarti.</p>
         </header>
-
+        
+        <!-- Messaggi di errore o conferma registrazione -->
         <?php if ($errore !== ''): ?>
             <div class="alert alert-error" role="alert">
                 <?= htmlspecialchars($errore, ENT_QUOTES, 'UTF-8') ?>
@@ -99,8 +105,11 @@ db_close($conn);
                 </div>
             </div>
         <?php endif; ?>
-
+        
+        <!-- Form di registrazione (sticky form con validazione JS + PHP) -->
         <form id="registerForm" class="auth-form" action="registrazione.php" method="POST" novalidate>
+
+            <!-- Campi del form di registrazione -->
             <div class="field">
                 <label for="nome">Nome</label>
                 <input
@@ -163,6 +172,7 @@ db_close($conn);
 
             <button type="submit" class="btn btn-primary w-100">Registrati</button>
 
+            <!-- Link di navigazione: login e ritorno alla home -->
             <p class="auth-links">
                 Hai già un account?
                 <a href="login.php" class="link-register">Accedi</a>
@@ -175,4 +185,5 @@ db_close($conn);
     </div>
 </section>
 
+<!-- Inclusione del footer del sito -->
 <?php require_once __DIR__ . '/includes/footer.php'; ?>
