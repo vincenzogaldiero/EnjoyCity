@@ -185,5 +185,7 @@ db_close($conn);
     </div>
 </section>
 
-<!-- Inclusione del footer del sito -->
-<?php require_once __DIR__ . '/includes/footer.php'; ?>
+<?php 
+// Inclusione del footer del sito
+require_once __DIR__ . '/includes/footer.php';
+?>

@@ -1,17 +1,25 @@
 <?php
+// Caricamento configurazione e metadati della pagina
 require_once __DIR__ . '/includes/config.php';
 
 $page_title = "Contatti - EnjoyCity";
 $page_desc  = "Contatti e informazioni utili del progetto EnjoyCity.";
 
+// Inclusione dell'header del sito
 require_once __DIR__ . '/includes/header.php';
 ?>
 
+<!-- ============================
+     Intestazione pagina Contatti
+============================ -->
 <section class="page-head">
     <h1>Contatti</h1>
     <p class="muted">Per informazioni o supporto puoi contattarci qui.</p>
 </section>
 
+<!-- ===========================
+     Sezione riferimenti diretti
+============================ -->
 <section class="card">
     <h2>Riferimenti</h2>
     <ul class="clean-list">
@@ -21,6 +29,9 @@ require_once __DIR__ . '/includes/header.php';
     </ul>
 </section>
 
+<!-- =====================================
+     Sezione FAQ e link di approfondimento
+====================================== -->
 <section class="card">
     <h2>Hai un dubbio?</h2>
     <p class="muted">
@@ -33,4 +44,7 @@ require_once __DIR__ . '/includes/header.php';
 
 </section>
 
-<?php require_once __DIR__ . '/includes/footer.php'; ?>
+<?php
+// Inclusione del footer del sito
+ require_once __DIR__ . '/includes/footer.php';
+?>
