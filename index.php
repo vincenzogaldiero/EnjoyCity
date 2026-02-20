@@ -265,3 +265,4 @@ require_once __DIR__ . '/includes/header.php';
 <?php
 // Inclusione del footer del sito
 require_once __DIR__ . '/includes/footer.php';
+?>

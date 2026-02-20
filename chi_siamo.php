@@ -1,15 +1,21 @@
 <?php
+// Caricamento configurazione e metadati della pagina
 require_once __DIR__ . '/includes/config.php';
 
 $page_title = "Chi siamo - EnjoyCity";
 $page_desc  = "Il progetto EnjoyCity: missione, valori e territorio.";
 
+// Inclusione dell'header del sito
 require_once __DIR__ . '/includes/header.php';
 
+// Stato utente (per CTA dinamiche)
 $logged = isset($_SESSION['logged']) && $_SESSION['logged'] === true;
 $ruolo  = $_SESSION['ruolo'] ?? null;
 ?>
 
+<!-- ===============================
+     Intestazione pagina "Chi siamo"
+================================ -->
 <section class="page-head">
     <h1>Chi siamo</h1>
     <p class="muted">
@@ -18,6 +24,9 @@ $ruolo  = $_SESSION['ruolo'] ?? null;
     </p>
 </section>
 
+<!-- ========================================
+     Sezione introduttiva (hero) del progetto
+========================================= -->
 <section class="hero-split" aria-label="Presentazione progetto">
     <div class="hero-text">
         <h2>Turista nella tua città</h2>
@@ -43,6 +52,9 @@ $ruolo  = $_SESSION['ruolo'] ?? null;
     </figure>
 </section>
 
+<!-- ============================================
+     Missione, valori e punti chiave del progetto
+============================================= -->
 <section class="card-grid" aria-label="Missione e valori">
     <article class="card">
         <h2>Missione</h2>
@@ -60,6 +72,9 @@ $ruolo  = $_SESSION['ruolo'] ?? null;
     </article>
 </section>
 
+<!-- ==========================================
+     Galleria di foto di presentazione del sito
+=========================================== -->
 <section class="gallery" aria-label="Galleria immagini">
     <figure class="gallery-item">
         <img src="<?= base_url('assets/img/borghi.jpg') ?>" alt="Paesaggio dell’Irpinia" loading="lazy">
@@ -77,4 +92,7 @@ $ruolo  = $_SESSION['ruolo'] ?? null;
     </figure>
 </section>
 
-<?php require_once __DIR__ . '/includes/footer.php'; ?>
+<?php 
+// Inclusione del footer del sito
+require_once __DIR__ . '/includes/footer.php'; 
+?>
