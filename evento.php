@@ -1,5 +1,5 @@
 <?php
-// =========================================================
+// ==============================================================================
 // FILE: evento.php
 // Dettaglio evento + prenotazione
 // Scelte didattiche:
@@ -8,29 +8,34 @@
 // - Se l'evento è annullato:
 //   • è SEMPRE non prenotabile;
 //   • viene mostrato un banner "Evento annullato";
-//   • se l'utente aveva una prenotazione, messaggio dedicato.
-// =========================================================
+//   • se l'utente aveva una prenotazione, visualizzerà un messaggio di notifica.
+// ==============================================================================
 
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
+// Caricamento configurazione e avvio sessione (se non già attiva)
 require_once __DIR__ . '/includes/config.php';
 if (session_status() === PHP_SESSION_NONE) session_start();
 
+// Connessione al database
 $conn = db_connect();
 
+// Stato utente
 $logged  = isset($_SESSION['logged']) && $_SESSION['logged'] === true;
 $user_id = isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : null;
 
-// Flash PRG
+// Flash messages (PRG)
 $flash_err = $_SESSION['flash_error']  ?? '';
 $flash_ok  = $_SESSION['flash_success'] ?? '';
 unset($_SESSION['flash_error'], $_SESSION['flash_success']);
 
-/* =========================================================
-   1) ID EVENTO (GET)
-========================================================= */
+/* =====================================================
+   1) id evento (GET)
+   -  Validazione dell'ID passato via query string
+   -  Se id non valido, si è rediretti alla lista eventi  
+======================================================*/
 $id = $_GET['id'] ?? '';
 if (!ctype_digit((string)$id)) {
   db_close($conn);
@@ -39,18 +44,23 @@ if (!ctype_digit((string)$id)) {
 }
 $evento_id = (int)$id;
 
-/* =========================================================
-   2) PRENOTAZIONE (POST)
-========================================================= */
+/* ==========================================================
+   2) prenotazione (POST)
+   - Gestione invio form di prenotazione
+   - Controlli: login, blocco utente, quantità, disponibilità
+   - Lock ottimistico tramite SELECT...FOR UPDATE
+========================================================== */
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-
+  
+  // Utente non loggato -> Redirect al login
   if (!$logged || $user_id === null) {
     $_SESSION['flash_error'] = "Devi accedere per prenotare.";
     db_close($conn);
     header("Location: " . base_url("login.php"));
     exit;
   }
-
+  
+  // Controllo blocco utente
   $block = user_is_blocked($conn, $user_id);
   if ($block['blocked']) {
     $_SESSION['flash_error'] = !empty($block['until'])
@@ -60,7 +70,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     header("Location: " . base_url("evento.php?id=" . urlencode((string)$evento_id)));
     exit;
   }
-
+  
+  // Validazione quantità
   $quantita = $_POST['quantita'] ?? '';
   if (!ctype_digit((string)$quantita)) {
     $_SESSION['flash_error'] = "Quantità non valida.";
@@ -76,7 +87,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     header("Location: " . base_url("evento.php?id=" . urlencode((string)$evento_id)));
     exit;
   }
-
+  
+  // Inizio transazione di prenotazione
   pg_query($conn, "BEGIN");
 
   // Lock riga evento, SOLO se ancora prenotabile a livello lifecycle
@@ -101,7 +113,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     header("Location: " . base_url("eventi.php"));
     exit;
   }
-
+  
+  // Evento informativo -> Niente prenotazione
   if ($ev['posti_totali'] === null || $ev['posti_totali'] === '') {
     pg_query($conn, "ROLLBACK");
     $_SESSION['flash_error'] = "Evento informativo: prenotazione non disponibile.";
@@ -118,7 +131,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     header("Location: " . base_url("evento.php?id=" . urlencode((string)$evento_id)));
     exit;
   }
-
+  
+  // Evento gratuito, non serve la prenotazione
   $prezzo = (float)$ev['prezzo'];
   if ($prezzo <= 0) {
     pg_query($conn, "ROLLBACK");
@@ -127,7 +141,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     header("Location: " . base_url("evento.php?id=" . urlencode((string)$evento_id)));
     exit;
   }
-
+  
+  // Controllo prenotazione già esistente
   $sqlGia = "SELECT 1 FROM prenotazioni WHERE utente_id = $1 AND evento_id = $2 LIMIT 1;";
   $resGia = pg_query_params($conn, $sqlGia, [$user_id, $evento_id]);
   if ($resGia && pg_num_rows($resGia) > 0) {
@@ -137,7 +152,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     header("Location: " . base_url("evento.php?id=" . urlencode((string)$evento_id)));
     exit;
   }
-
+  
+  // Totalizzazione delle prenotazioni esistenti
   $sqlSum = "SELECT COALESCE(SUM(quantita), 0) AS prenotati FROM prenotazioni WHERE evento_id = $1;";
   $resSum = pg_query_params($conn, $sqlSum, [$evento_id]);
   $sumRow = $resSum ? pg_fetch_assoc($resSum) : ['prenotati' => 0];
@@ -151,7 +167,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     header("Location: " . base_url("evento.php?id=" . urlencode((string)$evento_id)));
     exit;
   }
-
+  
+  // Inserimento prenotazione
   $sqlIns = "INSERT INTO prenotazioni (utente_id, evento_id, quantita) VALUES ($1, $2, $3);";
   $okIns  = pg_query_params($conn, $sqlIns, [$user_id, $evento_id, $quantita]);
 
@@ -162,7 +179,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     header("Location: " . base_url("evento.php?id=" . urlencode((string)$evento_id)));
     exit;
   }
-
+  
+  // Chiusura transazione di prenotazione
   $sqlUpd = "
       UPDATE eventi
       SET posti_prenotati = (
@@ -182,12 +200,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   exit;
 }
 
-/* =========================================================
-   3) DETTAGLI EVENTO (GET)
-   - pubblico: eventi approvati + NON archiviati + futuri
+/* ==================================================
+   3) Dettagli evento (GET)
+   - pubblico se approvato / non archiviato / futuro;
    - se archiviato / non approvato / passato:
-     • visibile solo a utente che aveva prenotato
-========================================================= */
+     • visibile solo all' utente che aveva prenotato
+================================================== */
 $sql = "
   SELECT e.*, c.nome AS categoria
   FROM eventi e
@@ -269,11 +287,11 @@ if ($logged && $user_id !== null) {
 $isCancelled = ($statoEvento === 'annullato');
 
 // prenotazione consentita solo se:
-// - NON informativo
+// - evento NON informativo
 // - posti > 0
 // - prezzo > 0
-// - NON annullato
-// - ancora pubblico (approvato + non archiviato + futuro)
+// - evento NON annullato
+// - evento ancora pubblico (approvato + non archiviato + futuro)
 $prenotabile = (
   !$isInfo &&
   $postiTot !== null &&
@@ -283,8 +301,10 @@ $prenotabile = (
   $visibilePubblicamente
 );
 
+// Chiusura della connessione al database
 db_close($conn);
 
+// Inclusione dell'header del sito
 require_once __DIR__ . '/includes/header.php';
 ?>
 
@@ -293,7 +313,10 @@ require_once __DIR__ . '/includes/header.php';
   <nav class="breadcrumb" aria-label="Percorso">
     <a href="<?= base_url('eventi.php') ?>">← Torna agli eventi</a>
   </nav>
-
+  
+  <!-- ================================
+       Messaggi flash (errori/successo)
+  ================================= -->
   <?php if ($flash_err): ?>
     <div class="alert alert-error" role="alert"><?= e($flash_err) ?></div>
   <?php endif; ?>
@@ -301,7 +324,8 @@ require_once __DIR__ . '/includes/header.php';
   <?php if ($flash_ok): ?>
     <div class="alert alert-success" role="status"><?= e($flash_ok) ?></div>
   <?php endif; ?>
-
+  
+  <!-- Banner evento annullato -->
   <?php if ($isCancelled): ?>
     <div class="alert alert-error" role="alert">
       Questo evento è stato <strong>annullato</strong> dall'organizzazione.
@@ -310,7 +334,8 @@ require_once __DIR__ . '/includes/header.php';
       <?php endif; ?>
     </div>
   <?php endif; ?>
-
+  
+  <!-- Sezione HERO: immagine evento + tag + informazioni principali -->
   <section class="event-hero card">
     <div class="event-hero-media">
       <?php if ($logged && !empty($evento['immagine'])): ?>
@@ -367,7 +392,8 @@ require_once __DIR__ . '/includes/header.php';
       </p>
 
       <p class="desc"><?= e((string)$evento['descrizione_breve']) ?></p>
-
+      
+      <!-- Avviso per utenti non autenticati -->
       <?php if (!$logged): ?>
         <div class="empty">
           <strong>Per vedere i dettagli completi accedi.</strong><br>
@@ -377,7 +403,8 @@ require_once __DIR__ . '/includes/header.php';
       <?php endif; ?>
     </div>
   </section>
-
+  
+  <!-- Layout principale: descrizione estesa + box prenotazione -->
   <section class="event-layout" aria-label="Dettagli e prenotazione">
 
     <article class="card">
@@ -401,7 +428,8 @@ require_once __DIR__ . '/includes/header.php';
           <a class="cta-login" href="<?= base_url('login.php') ?>">Accedi <small>per prenotare</small></a>
 
         <?php else: ?>
-
+          
+          <!-- Logica di accesso alla prenotazione (blocco, annullato, info, sold-out, ecc.) -->
           <?php if ($user_blocked): ?>
             <div class="alert alert-error" role="alert"><?= e($block_msg) ?></div>
             <p class="muted">Non puoi effettuare prenotazioni finché il blocco è attivo.</p>
@@ -420,7 +448,8 @@ require_once __DIR__ . '/includes/header.php';
 
           <?php elseif ($posti_residui !== null && $posti_residui <= 0): ?>
             <div class="alert alert-error" role="alert">Evento sold-out.</div>
-
+          
+          <!-- Form di prenotazione biglietti -->
           <?php else: ?>
             <form id="bookingForm" class="auth-form" method="post" action="" novalidate>
               <div class="field">
@@ -448,5 +477,9 @@ require_once __DIR__ . '/includes/header.php';
 
 </main>
 
+<!-- Script dedicato alla pagina evento -->
 <script src="<?= base_url('assets/js/evento.js') ?>"></script>
-<?php require_once __DIR__ . '/includes/footer.php'; ?>
+
+<?php 
+// Inclusione del footer del sito
+require_once __DIR__ . '/includes/footer.php'; ?>

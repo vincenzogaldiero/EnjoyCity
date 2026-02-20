@@ -12,16 +12,22 @@ $page_desc  = "Domande frequenti su EnjoyCity.";
 require_once __DIR__ . '/includes/header.php';
 ?>
 
+<!-- =======================
+     Intestazione pagina FAQ
+======================== -->
 <section class="page-head">
     <h1>FAQ</h1>
     <p class="muted">Qui trovi le risposte alle domande più comuni su EnjoyCity.</p>
 </section>
 
+<!-- ====================================================
+     Sezione con domande e risposte utili (accordion FAQ)
+===================================================== -->
 <section class="card">
     <div class="accordion" data-accordion>
 
         <?php
-        // 👉 qui scrivi tu le FAQ: basta aggiungere righe
+        // Possibilità di scrivere manualmente una FAQ, aggiungendo una riga
         $faqs = [
             ["Che cos’è EnjoyCity?", "È una piattaforma che promuove eventi locali per farti vivere la tua città come un turista."],
             ["Devo registrarmi per vedere gli eventi?", "No, gli eventi sono visibili a tutti. Registrandoti puoi proporre eventi e interagire di più con il nostro team."],
