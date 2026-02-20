@@ -5,6 +5,7 @@ ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
+// Avvio sessione e caricamento configurazione
 require_once __DIR__ . '/includes/config.php';
 
 if (session_status() === PHP_SESSION_NONE) {
@@ -13,16 +14,20 @@ if (session_status() === PHP_SESSION_NONE) {
 
 $page_title = "Registrazione - EnjoyCity";
 
+//Inizializzazione variabili
 $nome = "";
 $cognome = "";
 $email = "";
 $errore = "";
 $successo = "";
 
+// Connessione al database
 $conn = db_connect();
 
+// Gestione invio form di registrazione
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
+    // Normalizzazione degli input
     $nome     = trim((string)($_POST['nome'] ?? ''));
     $cognome  = trim((string)($_POST['cognome'] ?? ''));
     $email    = trim((string)($_POST['email'] ?? ''));
@@ -40,13 +45,14 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         $errore = "Le password non coincidono.";
     } else {
 
-        // Email già registrata?
+        // Verifica email già registrata
         $sqlCheck = "SELECT id FROM utenti WHERE email = $1 LIMIT 1;";
         $resCheck = pg_query_params($conn, $sqlCheck, [$email]);
 
         if ($resCheck && pg_num_rows($resCheck) > 0) {
             $errore = "Questa email è già registrata.";
         } else {
+            // Inserimento nuovo utente
             $hash = password_hash($password, PASSWORD_DEFAULT);
 
             $sqlIns = "
@@ -65,6 +71,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     }
 }
 
+// Chiusura connessione al database
 db_close($conn);
 ?>
 
