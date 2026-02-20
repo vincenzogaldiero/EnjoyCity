@@ -13,7 +13,7 @@ $ruolo  = $_SESSION['ruolo'] ?? null;
 <section class="page-head">
     <h1>Chi siamo</h1>
     <p class="muted">
-        EnjoyCity è un progetto pensato per valorizzare gli eventi locali e rendere semplice scoprire
+        EnjoyCity è un progetto pensato per valorizzare gli eventi locali e rendere semplice scoprire che
         cosa succede in città e sul territorio.
     </p>
 </section>
