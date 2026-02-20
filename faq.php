@@ -1,9 +1,14 @@
 <?php
+// FILE: faq.php
+
+// Caricamento configurazione
 require_once __DIR__ . '/includes/config.php';
 
+// Metadati della pagina
 $page_title = "FAQ - EnjoyCity";
 $page_desc  = "Domande frequenti su EnjoyCity.";
 
+// Inclusione dell'header del sito
 require_once __DIR__ . '/includes/header.php';
 ?>
 
@@ -57,4 +62,6 @@ require_once __DIR__ . '/includes/header.php';
     </div>
 </section>
 
-<?php require_once __DIR__ . '/includes/footer.php'; ?>
+<?php 
+// Inclusione del footer del sito
+require_once __DIR__ . '/includes/footer.php'; ?>
