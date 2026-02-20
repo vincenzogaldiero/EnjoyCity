@@ -1,4 +1,6 @@
 <?php
+// FILE: chi_siamo.php
+
 // Caricamento configurazione
 require_once __DIR__ . '/includes/config.php';
 

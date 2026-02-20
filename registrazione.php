@@ -1,13 +1,12 @@
 <?php
-// registrazione.php
+// FILE: registrazione.php
 
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
-// Avvio sessione e caricamento configurazione
+// Caricamento configurazione e avvio sessione (se non già attiva)
 require_once __DIR__ . '/includes/config.php';
-
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }

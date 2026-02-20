@@ -1,7 +1,7 @@
 <?php
-// index.php
+// fILE: index.php
 
-// Avvio sessione e caricamento configurazione
+// Caricamento configurazione
 require_once __DIR__ . '/includes/config.php';
 
 $page_title = "EnjoyCity - Turista nella tua provincia";     // metadato

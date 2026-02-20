@@ -9,7 +9,7 @@ if (session_status() === PHP_SESSION_NONE) session_start();
 $page_title = "Dicono di noi - EnjoyCity";
 $page_desc  = "Recensioni degli utenti pubblicate dopo approvazione.";
 
-// Connessione al database e recupero recensioni approvate
+// Connessione al database e recupero delle recensioni approvate
 $conn = db_connect();
 
 $recensioni = [];
@@ -39,17 +39,17 @@ db_close($conn);
 require_once __DIR__ . '/includes/header.php';
 ?>
 
-<!-- ==============================
-     Intestazione pagina recensioni
-=============================== -->
+<!-- ==========================================
+     Intestazione della pagina delle recensioni
+=========================================== -->
 <section class="page-head">
     <h1>Dicono di noi</h1>
     <p class="muted">Qui trovi le recensioni dei nostri utenti registrati.</p>
 </section>
 
-<!-- ===================================
-     Sezione elenco recensioni approvate
-==================================== -->
+<!-- =============================================
+     Sezione con elenco delle recensioni approvate
+============================================== -->
 <section class="card">
     <h2>Recensioni</h2>
 
@@ -59,7 +59,7 @@ require_once __DIR__ . '/includes/header.php';
         <div class="reviews" aria-label="Elenco recensioni approvate">
             <?php foreach ($recensioni as $r): ?>
                 <?php
-                // Preparazione dati recensione
+                // Preparazione dei dati per la recensione
                 $voto = (int)($r['voto'] ?? 0);
                 $nome = trim((string)($r['nome'] ?? ''));
                 $cognome = trim((string)($r['cognome'] ?? ''));
