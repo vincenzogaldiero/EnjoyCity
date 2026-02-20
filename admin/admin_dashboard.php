@@ -4,7 +4,7 @@
 // Scopo didattico:
 // - Dashboard admin con KPI di sintesi sullo stato della piattaforma
 // - Code di moderazione (eventi e recensioni)
-// - Preview rapida di eventi "live" e archiviati
+// - Pannello di azioni rapide per raggiungere le sezioni chiave
 // - Cookie "ec_admin_layout" per preferenza layout dashboard
 // =========================================================
 
@@ -17,58 +17,46 @@ if (session_status() === PHP_SESSION_NONE) session_start();
 
 // =========================================================
 // 1) Guard: SOLO ADMIN
-//    La dashboard non è accessibile a utenti non autenticati
-//    o con ruolo diverso da 'admin'
 // =========================================================
-if (!isset($_SESSION['logged']) || $_SESSION['logged'] !== true || ($_SESSION['ruolo'] ?? '') !== 'admin') {
+if (
+    !isset($_SESSION['logged']) ||
+    $_SESSION['logged'] !== true ||
+    ($_SESSION['ruolo'] ?? '') !== 'admin'
+) {
     $_SESSION['flash_error'] = "Accesso non autorizzato.";
     header("Location: " . base_url("login.php"));
     exit;
 }
 
 // =========================================================
-// 1-bis) Cookie layout admin
-//        ec_admin_layout = 'full' | 'compact'
-//        Permette all'admin di scegliere se vedere
-//        solo i KPI (compatto) o l'intera dashboard.
+// 1-bis) Cookie layout admin: 'full' | 'compact'
 // =========================================================
 $adminLayoutCookie = 'ec_admin_layout';
 
-// Gestione POST per cambio layout (prima di qualsiasi output)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['admin_layout'])) {
     $layout = ($_POST['admin_layout'] === 'compact') ? 'compact' : 'full';
     $expire = time() + (60 * 60 * 24 * 30); // 30 giorni
 
-    // Cookie valido per tutto il sito
     setcookie($adminLayoutCookie, $layout, $expire, '/');
-
-    // PRG: evito il resubmit del form
     header("Location: " . base_url("admin/admin_dashboard.php"));
     exit;
 }
 
-// Lettura cookie (default "full")
 $admin_layout = $_COOKIE[$adminLayoutCookie] ?? 'full';
 
 $page_title = "Dashboard Admin - EnjoyCity";
-$conn = db_connect();
+$conn       = db_connect();
 
 // =========================================================
-// 2) Flash messages (PRG pattern)
-//    Vengono mostrate una volta e poi eliminate dalla sessione
+// 2) Flash messages (PRG)
 // =========================================================
-$flash_ok    = $_SESSION['flash_ok'] ?? '';
+$flash_ok    = $_SESSION['flash_ok']    ?? '';
 $flash_error = $_SESSION['flash_error'] ?? '';
 unset($_SESSION['flash_ok'], $_SESSION['flash_error']);
 
 // =========================================================
 // 3) Utility
 // =========================================================
-
-/**
- * Esegue una COUNT(*) generica.
- * Utile per i KPI, riduce duplicazione del codice.
- */
 function count_q($conn, string $sql, array $params = []): int
 {
     $res = $params ? pg_query_params($conn, $sql, $params) : pg_query($conn, $sql);
@@ -77,10 +65,6 @@ function count_q($conn, string $sql, array $params = []): int
     return (int)($row['c'] ?? 0);
 }
 
-/**
- * Normalizza i boolean PostgreSQL ('t'/'f') in bool PHP.
- * Viene usata per leggere campi come prenotazione_obbligatoria.
- */
 function is_true_pg_local($v): bool
 {
     return ($v === 't' || $v === true || $v === '1' || $v === 1);
@@ -93,10 +77,10 @@ function is_true_pg_local($v): bool
 // Utenti registrati totali
 $kpi_utenti = count_q($conn, "SELECT COUNT(*) c FROM utenti");
 
-// Eventi totali a DB (qualsiasi stato)
+// Eventi totali
 $kpi_eventi_totali = count_q($conn, "SELECT COUNT(*) c FROM eventi");
 
-// Eventi "in vigore"
+// Eventi in vigore (approvati, attivi, non archiviati, futuri)
 $kpi_eventi_in_vigore = count_q($conn, "
     SELECT COUNT(*) c
     FROM eventi
@@ -106,7 +90,7 @@ $kpi_eventi_in_vigore = count_q($conn, "
       AND data_evento >= NOW()
 ");
 
-// Eventi conclusi: approvati ma già passati (storico)
+// Eventi conclusi (approvati ma già passati)
 $kpi_eventi_conclusi = count_q($conn, "
     SELECT COUNT(*) c
     FROM eventi
@@ -114,14 +98,14 @@ $kpi_eventi_conclusi = count_q($conn, "
       AND data_evento < NOW()
 ");
 
-// Eventi in attesa di moderazione (workflow editoriale)
+// Eventi in attesa di moderazione
 $kpi_eventi_attesa = count_q($conn, "
     SELECT COUNT(*) c
     FROM eventi
     WHERE stato = $1
 ", ['in_attesa']);
 
-// Eventi rifiutati (non visibili al pubblico)
+// Eventi rifiutati
 $kpi_eventi_rifiutati = count_q($conn, "
     SELECT COUNT(*) c
     FROM eventi
@@ -144,7 +128,7 @@ $kpi_eventi_archiviati = count_q($conn, "
       AND archiviato = TRUE
 ");
 
-// Recensioni in attesa di moderazione
+// Recensioni in attesa
 $kpi_rec_attesa = count_q($conn, "
     SELECT COUNT(*) c
     FROM recensioni
@@ -174,7 +158,11 @@ $resE = pg_query_params($conn, "
     ORDER BY e.data_evento ASC
     LIMIT 10
 ", ['in_attesa']);
-if ($resE) while ($r = pg_fetch_assoc($resE)) $pending_events[] = $r;
+if ($resE) {
+    while ($r = pg_fetch_assoc($resE)) {
+        $pending_events[] = $r;
+    }
+}
 
 // Recensioni in attesa
 $pending_reviews = [];
@@ -187,54 +175,18 @@ $resR = pg_query_params($conn, "
     ORDER BY r.data_recensione DESC
     LIMIT 10
 ", ['in_attesa']);
-if ($resR) while ($r = pg_fetch_assoc($resR)) $pending_reviews[] = $r;
-
-// =========================================================
-// 6) Preview Eventi "live"
-// =========================================================
-$live_events = [];
-$resL = pg_query($conn, "
-    SELECT e.id, e.titolo, e.data_evento, e.luogo,
-           e.prezzo, e.prenotazione_obbligatoria,
-           e.posti_totali, e.posti_prenotati,
-           e.archiviato, e.stato_evento,
-           c.nome AS categoria
-    FROM eventi e
-    LEFT JOIN categorie c ON c.id = e.categoria_id
-    WHERE e.stato = 'approvato'
-      AND e.archiviato = FALSE
-      AND e.stato_evento = 'attivo'
-      AND e.data_evento >= NOW()
-    ORDER BY e.data_evento ASC
-    LIMIT 6;
-");
-if ($resL) while ($r = pg_fetch_assoc($resL)) $live_events[] = $r;
-
-// =========================================================
-// 7) Preview Eventi archiviati
-// =========================================================
-$archived_events = [];
-$resA = pg_query($conn, "
-    SELECT e.id, e.titolo, e.data_evento, e.luogo,
-           e.prezzo, e.prenotazione_obbligatoria,
-           e.posti_totali, e.posti_prenotati,
-           e.archiviato, e.stato_evento,
-           c.nome AS categoria
-    FROM eventi e
-    LEFT JOIN categorie c ON c.id = e.categoria_id
-    WHERE e.stato = 'approvato'
-      AND e.archiviato = TRUE
-    ORDER BY e.data_evento DESC
-    LIMIT 6;
-");
-if ($resA) while ($r = pg_fetch_assoc($resA)) $archived_events[] = $r;
+if ($resR) {
+    while ($r = pg_fetch_assoc($resR)) {
+        $pending_reviews[] = $r;
+    }
+}
 
 db_close($conn);
 
 require_once __DIR__ . '/../includes/admin_header.php';
 
 // =========================================================
-// 8) Render helper per le azioni sugli eventi
+// 6) Helper per action eventi
 // =========================================================
 function render_action_btn(int $id, string $azione, string $label, string $class): void
 {
@@ -243,20 +195,22 @@ function render_action_btn(int $id, string $azione, string $label, string $class
     <form class="inline" method="post" action="<?= base_url('admin/admin_event_action.php') ?>">
         <input type="hidden" name="id" value="<?= (int)$id ?>">
         <input type="hidden" name="azione" value="<?= e($azione) ?>">
-        <button class="<?= e($class) ?>" type="submit" data-confirm="<?= e($confirm) ?>"><?= e($label) ?></button>
+        <button class="<?= e($class) ?>" type="submit" data-confirm="<?= e($confirm) ?>">
+            <?= e($label) ?>
+        </button>
     </form>
 <?php
 }
 
 // =========================================================
-// 9) Classi dinamiche per KPI
+// 7) Classi dinamiche per alcuni KPI
 // =========================================================
-$cls_attesa   = $kpi_eventi_attesa    > 0 ? 'kpi-card kpi-card--warn'   : 'kpi-card';
-$cls_rifiuti  = $kpi_eventi_rifiutati > 0 ? 'kpi-card kpi-card--muted'  : 'kpi-card';
-$cls_annull   = $kpi_eventi_annullati > 0 ? 'kpi-card kpi-card--muted'  : 'kpi-card';
-$cls_arch     = $kpi_eventi_archiviati > 0 ? 'kpi-card kpi-card--muted' : 'kpi-card';
-$cls_rec_wait = $kpi_rec_attesa       > 0 ? 'kpi-card kpi-card--warn'   : 'kpi-card';
-$cls_blocc    = $kpi_bloccati         > 0 ? 'kpi-card kpi-card--danger' : 'kpi-card';
+$cls_attesa   = $kpi_eventi_attesa     > 0 ? 'kpi-card kpi-card--warn'   : 'kpi-card';
+$cls_rifiuti  = $kpi_eventi_rifiutati  > 0 ? 'kpi-card kpi-card--muted'  : 'kpi-card';
+$cls_annull   = $kpi_eventi_annullati  > 0 ? 'kpi-card kpi-card--muted'  : 'kpi-card';
+$cls_arch     = $kpi_eventi_archiviati > 0 ? 'kpi-card kpi-card--muted'  : 'kpi-card';
+$cls_rec_wait = $kpi_rec_attesa        > 0 ? 'kpi-card kpi-card--warn'   : 'kpi-card';
+$cls_blocc    = $kpi_bloccati          > 0 ? 'kpi-card kpi-card--danger' : 'kpi-card';
 
 ?>
 
@@ -268,12 +222,12 @@ $cls_blocc    = $kpi_bloccati         > 0 ? 'kpi-card kpi-card--danger' : 'kpi-c
 <?php endif; ?>
 
 <!-- =========================================================
-     9-bis) Preferenza layout admin (cookie ec_admin_layout)
+     7-bis) Preferenza layout dashboard
 ========================================================= -->
 <section class="card admin-layout-toggle" aria-label="Preferenze layout dashboard admin">
     <header class="card-head">
         <h2>Layout dashboard</h2>
-        <p class="muted">Scegli se visualizzare solo le statistiche o tutta la dashboard.</p>
+        <p class="muted">Scegli se visualizzare solo le statistiche o anche le code di moderazione.</p>
     </header>
 
     <form method="post" class="admin-layout-form">
@@ -296,7 +250,7 @@ $cls_blocc    = $kpi_bloccati         > 0 ? 'kpi-card kpi-card--danger' : 'kpi-c
 </section>
 
 <!-- =========================================================
-     10) KPI - fotografia sintetica dello stato del sistema
+     8) KPI - fotografia sintetica del sistema
 ========================================================= -->
 <section class="admin-kpi admin-kpi-<?= e($admin_layout) ?>" aria-label="Statistiche rapide">
     <article class="kpi-card">
@@ -312,13 +266,13 @@ $cls_blocc    = $kpi_bloccati         > 0 ? 'kpi-card kpi-card--danger' : 'kpi-c
     <article class="kpi-card">
         <h2>Eventi attivi</h2>
         <div class="kpi-num"><?= (int)$kpi_eventi_in_vigore ?></div>
-        <p class="muted" style="margin:6px 0 0 0;font-size:12px;">online ora</p>
+        <p class="muted" style="margin-top:6px;font-size:12px;">online ora</p>
     </article>
 
     <article class="kpi-card">
         <h2>Conclusi</h2>
         <div class="kpi-num"><?= (int)$kpi_eventi_conclusi ?></div>
-        <p class="muted" style="margin:6px 0 0 0;font-size:12px;">storico</p>
+        <p class="muted" style="margin-top:6px;font-size:12px;">storico</p>
     </article>
 
     <article class="<?= $cls_attesa ?>">
@@ -355,30 +309,97 @@ $cls_blocc    = $kpi_bloccati         > 0 ? 'kpi-card kpi-card--danger' : 'kpi-c
 <?php if ($admin_layout === 'full'): ?>
 
     <!-- =========================================================
-     11) Link rapidi di navigazione admin
-========================================================= -->
-    <section class="card" aria-label="Azioni rapide admin">
+         9) Pannello Azioni rapide
+    ========================================================= -->
+    <section class="card admin-quick-panel" aria-label="Azioni rapide admin">
         <header class="card-head">
             <h2>Azioni rapide</h2>
+            <p class="muted">
+                Vai subito alle aree principali: eventi, utenti e moderazione delle recensioni.
+            </p>
         </header>
 
-        <div style="display:flex;gap:10px;flex-wrap:wrap;">
-            <a class="btn btn-ghost" href="<?= base_url('admin/admin_eventi.php#live') ?>">Eventi attivi →</a>
-            <a class="btn btn-ghost" href="<?= base_url('admin/admin_eventi.php#pending') ?>">Eventi in attesa →</a>
-            <a class="btn btn-ghost" href="<?= base_url('admin/admin_eventi.php#rejected') ?>">Rifiutati →</a>
-            <a class="btn btn-ghost" href="<?= base_url('admin/admin_eventi.php#done') ?>">Conclusi →</a>
-            <a class="btn btn-ghost" href="<?= base_url('admin/admin_eventi.php#archived') ?>">Archiviati →</a>
+        <div class="admin-quick-grid"
+            style="display:grid;gap:24px;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));margin-top:8px;">
+
+            <!-- ===================== EVENTI ===================== -->
+            <article class="admin-quick-card" style="display:flex;flex-direction:column;gap:10px;">
+                <div>
+                    <h3>Eventi</h3>
+                    <p class="muted">Gestisci l’intero ciclo di vita: proposta, moderazione e storico.</p>
+                </div>
+
+                <div class="admin-quick-actions"
+                    style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px;">
+                    <a class="btn btn-ghost" href="<?= base_url('admin/admin_eventi.php') ?>">
+                        Tutti gli eventi →
+                    </a>
+                    <a class="btn btn-ghost" href="<?= base_url('admin/admin_eventi.php#pending') ?>">
+                        In attesa
+                    </a>
+                    <a class="btn btn-ghost" href="<?= base_url('admin/admin_eventi.php#rejected') ?>">
+                        Rifiutati
+                    </a>
+                    <a class="btn btn-ghost" href="<?= base_url('admin/admin_eventi.php#cancelled') ?>">
+                        Annullati
+                    </a>
+                    <a class="btn btn-ghost" href="<?= base_url('admin/admin_eventi.php#done') ?>">
+                        Conclusi
+                    </a>
+                    <a class="btn btn-ghost" href="<?= base_url('admin/admin_eventi.php#archived') ?>">
+                        Archiviati
+                    </a>
+                    <a class="btn btn-admin" href="<?= base_url('admin/admin_event_add.php') ?>">
+                        + Nuovo evento
+                    </a>
+                </div>
+            </article>
+
+            <!-- ===================== UTENTI ===================== -->
+            <article class="admin-quick-card" style="display:flex;flex-direction:column;gap:10px;">
+                <div>
+                    <h3>Utenti</h3>
+                    <p class="muted">Consulta l’elenco e gestisci gli eventuali blocchi.</p>
+                </div>
+
+                <div class="admin-quick-actions"
+                    style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px;">
+                    <a class="btn btn-ghost" href="<?= base_url('admin/admin_utenti.php') ?>">
+                        Tutti gli utenti →
+                    </a>
+                    <a class="btn btn-ghost" href="<?= base_url('admin/admin_utenti.php#blocked') ?>">
+                        Utenti bloccati
+                    </a>
+                </div>
+            </article>
+
+            <!-- ===================== RECENSIONI ===================== -->
+            <article class="admin-quick-card" style="display:flex;flex-direction:column;gap:10px;">
+                <div>
+                    <h3>Recensioni</h3>
+                    <p class="muted">
+                        Controlla le recensioni lasciate dagli utenti in attesa di moderazione.
+                    </p>
+                </div>
+
+                <div class="admin-quick-actions"
+                    style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px;">
+                    <a class="btn btn-ghost" id="sec-reviews" href="#sec-reviews">
+                        Recensioni da moderare
+                    </a>
+                </div>
+            </article>
+
         </div>
     </section>
-
     <!-- =========================================================
-     12) Coda di moderazione (eventi + recensioni)
-========================================================= -->
+         10) Coda di moderazione: eventi + recensioni
+    ========================================================= -->
     <section class="admin-grid" aria-label="Coda di moderazione admin">
         <div class="admin-stack">
 
             <!-- ===================== EVENTI IN ATTESA ===================== -->
-            <section class="card" aria-label="Eventi da approvare">
+            <section class="card" aria-label="Eventi da approvare" id="sec-events-pending">
                 <header class="card-head">
                     <h2>
                         Eventi in attesa
@@ -402,15 +423,22 @@ $cls_blocc    = $kpi_bloccati         > 0 ? 'kpi-card kpi-card--danger' : 'kpi-c
                                 <div class="row-main">
                                     <h3 class="row-title"><?= e($ev['titolo'] ?? '') ?></h3>
                                     <p class="row-meta">
-                                        <?= e(fmt_datetime($ev['data_evento'] ?? '')) ?> • <?= e($ev['luogo'] ?? '') ?> • ID #<?= $evId ?>
-                                        <?php if ($org !== ''): ?> • Proposto da: <?= e($org) ?><?php endif; ?>
+                                        <?= e(fmt_datetime($ev['data_evento'] ?? '')) ?>
+                                        • <?= e($ev['luogo'] ?? '') ?>
+                                        • ID #<?= $evId ?>
+                                        <?php if ($org !== ''): ?>
+                                            • Proposto da: <?= e($org) ?>
+                                        <?php endif; ?>
                                     </p>
                                 </div>
 
                                 <div class="row-actions" style="flex-wrap:wrap;">
                                     <?php render_action_btn($evId, 'approva', 'Approva', 'btn btn-ok'); ?>
                                     <?php render_action_btn($evId, 'rifiuta', 'Rifiuta', 'btn btn-danger'); ?>
-                                    <a class="btn btn-ghost" href="<?= base_url('admin/admin_event_edit.php?id=' . $evId) ?>">Modifica</a>
+                                    <a class="btn btn-ghost"
+                                        href="<?= base_url('admin/admin_event_edit.php?id=' . $evId) ?>">
+                                        Modifica
+                                    </a>
                                 </div>
                             </article>
                         <?php endforeach; ?>
@@ -425,7 +453,7 @@ $cls_blocc    = $kpi_bloccati         > 0 ? 'kpi-card kpi-card--danger' : 'kpi-c
             </section>
 
             <!-- ===================== RECENSIONI IN ATTESA ===================== -->
-            <section class="card" aria-label="Recensioni da moderare">
+            <section class="card" aria-label="Recensioni da moderare" id="sec-reviews">
                 <header class="card-head">
                     <h2>
                         Recensioni da moderare
@@ -433,7 +461,9 @@ $cls_blocc    = $kpi_bloccati         > 0 ? 'kpi-card kpi-card--danger' : 'kpi-c
                             <span class="admin-badge"><?= (int)$kpi_rec_attesa ?></span>
                         <?php endif; ?>
                     </h2>
-                    <p class="muted">Approva o rifiuta. Dopo l’approvazione sarà pubblicata su “Dicono di noi”.</p>
+                    <p class="muted">
+                        Approva o rifiuta le recensioni prima della pubblicazione su “Dicono di noi”.
+                    </p>
                 </header>
 
                 <?php if (empty($pending_reviews)): ?>
@@ -448,26 +478,38 @@ $cls_blocc    = $kpi_bloccati         > 0 ? 'kpi-card kpi-card--danger' : 'kpi-c
                             ?>
                             <article class="row">
                                 <div class="row-main">
-                                    <h3 class="row-title"><?= e($autore) ?> • Voto <?= (int)($rv['voto'] ?? 0) ?>/5</h3>
+                                    <h3 class="row-title">
+                                        <?= e($autore) ?> • Voto <?= (int)($rv['voto'] ?? 0) ?>/5
+                                    </h3>
                                     <p class="row-meta">
                                         <?= e(fmt_datetime($rv['data_recensione'] ?? '')) ?>
-                                        <?php if (!empty($rv['email'])): ?> • <?= e($rv['email']) ?><?php endif; ?>
-                                            • ID #<?= $rvId ?>
+                                        <?php if (!empty($rv['email'])): ?>
+                                            • <?= e($rv['email']) ?>
+                                        <?php endif; ?>
+                                        • ID #<?= $rvId ?>
                                     </p>
                                     <p class="row-text"><?= e($rv['testo'] ?? '') ?></p>
                                 </div>
 
                                 <div class="row-actions" style="flex-wrap:wrap;">
-                                    <form class="inline" method="post" action="<?= base_url('admin/admin_review_action.php') ?>">
+                                    <form class="inline" method="post"
+                                        action="<?= base_url('admin/admin_review_action.php') ?>">
                                         <input type="hidden" name="id" value="<?= $rvId ?>">
                                         <input type="hidden" name="azione" value="approva">
-                                        <button class="btn btn-ok" type="submit" data-confirm="Approvare la recensione #<?= $rvId ?>?">Approva</button>
+                                        <button class="btn btn-ok" type="submit"
+                                            data-confirm="Approvare la recensione #<?= $rvId ?>?">
+                                            Approva
+                                        </button>
                                     </form>
 
-                                    <form class="inline" method="post" action="<?= base_url('admin/admin_review_action.php') ?>">
+                                    <form class="inline" method="post"
+                                        action="<?= base_url('admin/admin_review_action.php') ?>">
                                         <input type="hidden" name="id" value="<?= $rvId ?>">
                                         <input type="hidden" name="azione" value="rifiuta">
-                                        <button class="btn btn-danger" type="submit" data-confirm="Rifiutare la recensione #<?= $rvId ?>?">Rifiuta</button>
+                                        <button class="btn btn-danger" type="submit"
+                                            data-confirm="Rifiutare la recensione #<?= $rvId ?>?">
+                                            Rifiuta
+                                        </button>
                                     </form>
                                 </div>
                             </article>
@@ -479,118 +521,7 @@ $cls_blocc    = $kpi_bloccati         > 0 ? 'kpi-card kpi-card--danger' : 'kpi-c
         </div>
     </section>
 
-    <!-- =========================================================
-     13) Preview Eventi LIVE
-========================================================= -->
-    <section class="card" aria-label="Eventi in vigore">
-        <header class="card-head">
-            <h2>Accesso rapido: eventi approvati e attivi</h2>
-            <p class="muted">Online al pubblico: futuri, attivi, non archiviati.</p>
-        </header>
-
-        <?php if (!$live_events): ?>
-            <p class="muted" style="margin-top:12px;">Nessun evento attivo e futuro al momento.</p>
-        <?php else: ?>
-            <div class="list">
-                <?php foreach ($live_events as $ev): ?>
-                    <?php
-                    $id       = (int)$ev['id'];
-                    $isInfo   = ($ev['posti_totali'] === null);
-                    $prenObbl = is_true_pg_local($ev['prenotazione_obbligatoria'] ?? 'f');
-                    ?>
-                    <article class="row">
-                        <div class="row-main">
-                            <h3 class="row-title"><?= e($ev['titolo']) ?></h3>
-                            <p class="row-meta">
-                                <?= e(fmt_datetime($ev['data_evento'])) ?> • <?= e($ev['luogo']) ?> • ID #<?= $id ?>
-                                <?php if (!empty($ev['categoria'])): ?> • <?= e($ev['categoria']) ?><?php endif; ?>
-                            </p>
-                            <p class="row-meta" style="margin-top:6px;">
-                                <?php if ($isInfo): ?>
-                                    <strong>Tipo:</strong> Informativo
-                                <?php else: ?>
-                                    <strong>Posti:</strong> <?= (int)($ev['posti_prenotati'] ?? 0) ?>/<?= (int)$ev['posti_totali'] ?>
-                                    • <strong>Prenotazione:</strong> <?= $prenObbl ? 'Obbligatoria' : 'Non obbligatoria' ?>
-                                <?php endif; ?>
-                                • <strong>Prezzo:</strong> €<?= e(number_format((float)($ev['prezzo'] ?? 0), 2, '.', '')) ?>
-                            </p>
-                        </div>
-
-                        <div class="row-actions" style="flex-wrap:wrap;">
-                            <a class="btn btn-admin" href="<?= base_url('admin/admin_event_edit.php?id=' . $id) ?>">Modifica</a>
-                            <a class="btn btn-ghost" href="<?= base_url('evento.php?id=' . $id) ?>">Apri</a>
-                            <?php render_action_btn($id, 'annulla', 'Annulla', 'btn btn-danger'); ?>
-                            <?php render_action_btn($id, 'archivia', 'Archivia', 'btn btn-ghost'); ?>
-                        </div>
-                    </article>
-                <?php endforeach; ?>
-            </div>
-
-            <div style="margin-top:10px;">
-                <a class="btn btn-ghost" href="<?= base_url('admin/admin_eventi.php#live') ?>">
-                    Vedi tutti gli eventi attivi →
-                </a>
-            </div>
-        <?php endif; ?>
-    </section>
-
-    <!-- =========================================================
-     14) Preview Eventi ARCHIVIATI
-========================================================= -->
-    <section class="card" aria-label="Eventi archiviati">
-        <header class="card-head">
-            <h2>Accesso rapido: eventi archiviati</h2>
-            <p class="muted">Non visibili al pubblico. Gestibili solo dall’admin.</p>
-        </header>
-
-        <?php if (!$archived_events): ?>
-            <p class="muted" style="margin-top:12px;">Nessun evento archiviato al momento.</p>
-        <?php else: ?>
-            <div class="list">
-                <?php foreach ($archived_events as $ev): ?>
-                    <?php
-                    $id       = (int)$ev['id'];
-                    $isInfo   = ($ev['posti_totali'] === null);
-                    $prenObbl = is_true_pg_local($ev['prenotazione_obbligatoria'] ?? 'f');
-                    $stEv     = (string)($ev['stato_evento'] ?? 'attivo');
-                    ?>
-                    <article class="row is-archived">
-                        <div class="row-main">
-                            <h3 class="row-title"><?= e($ev['titolo']) ?></h3>
-                            <p class="row-meta">
-                                <?= e(fmt_datetime($ev['data_evento'])) ?> • <?= e($ev['luogo']) ?> • ID #<?= $id ?>
-                                <?php if (!empty($ev['categoria'])): ?> • <?= e($ev['categoria']) ?><?php endif; ?>
-                            </p>
-                            <p class="row-meta" style="margin-top:6px;">
-                                <?php if ($isInfo): ?>
-                                    <strong>Tipo:</strong> Informativo
-                                <?php else: ?>
-                                    <strong>Posti:</strong> <?= (int)($ev['posti_prenotati'] ?? 0) ?>/<?= (int)$ev['posti_totali'] ?>
-                                    • <strong>Prenotazione:</strong> <?= $prenObbl ? 'Obbligatoria' : 'Non obbligatoria' ?>
-                                <?php endif; ?>
-                                • <strong>Prezzo:</strong> €<?= e(number_format((float)($ev['prezzo'] ?? 0), 2, '.', '')) ?>
-                                • <strong>Stato evento:</strong> <?= e($stEv) ?> • <strong>Archiviato:</strong> Sì
-                            </p>
-                        </div>
-
-                        <div class="row-actions" style="flex-wrap:wrap;">
-                            <a class="btn btn-ghost" href="<?= base_url('evento.php?id=' . $id) ?>">Apri</a>
-                            <a class="btn btn-admin" href="<?= base_url('admin/admin_event_edit.php?id=' . $id) ?>">Modifica</a>
-                            <?php render_action_btn($id, 'ripristina', 'Ripristina', 'btn btn-ok'); ?>
-                        </div>
-                    </article>
-                <?php endforeach; ?>
-            </div>
-
-            <div style="margin-top:10px;">
-                <a class="btn btn-ghost" href="<?= base_url('admin/admin_eventi.php#archived') ?>">
-                    Vedi tutti gli archiviati →
-                </a>
-            </div>
-        <?php endif; ?>
-    </section>
-
-<?php endif; // fine if admin_layout === 'full' 
+<?php endif; // fine layout full 
 ?>
 
 <?php require_once __DIR__ . '/../includes/admin_footer.php'; ?>

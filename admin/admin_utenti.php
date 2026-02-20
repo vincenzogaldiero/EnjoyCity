@@ -8,7 +8,7 @@
 // - Stato di blocco (attivo / bloccato) con eventuale scadenza temporale.
 // - Storico prenotazioni per singolo utente (visualizzazione in <details>).
 // - Azioni di blocco/sblocco con diverse durate (24h, 7 giorni, 30 giorni, permanente).
-//
+// - Sezione riepilogativa con soli utenti attualmente bloccati.
 // =========================================================
 
 ini_set('display_errors', 1);
@@ -22,7 +22,6 @@ if (session_status() === PHP_SESSION_NONE) {
 
 // ---------------------------------------------------------
 // Helper: redirect verso la stessa pagina (PRG)
-// - Facoltativamente chiude la connessione DB se passata.
 // ---------------------------------------------------------
 function redirect_admin_utenti($conn = null): void
 {
@@ -35,7 +34,7 @@ function redirect_admin_utenti($conn = null): void
 
 /* =========================================================
    1) Guard: SOLO ADMIN
-   ========================================================= */
+========================================================= */
 $logged = isset($_SESSION['logged']) && $_SESSION['logged'] === true;
 $ruolo  = $_SESSION['ruolo'] ?? '';
 
@@ -56,13 +55,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $idRaw  = $_POST['id'] ?? '';
     $azione = (string)($_POST['azione'] ?? '');
 
-    //  azioni ammesse
+    // azioni ammesse
     $azioniAmmesse = [
         'sblocca',      // rimuove qualsiasi blocco
         'blocca_24h',   // blocco temporaneo 24 ore
         'blocca_7g',    // blocco temporaneo 7 giorni
         'blocca_30g',   // blocco temporaneo 30 giorni
-        'blocca_perm',  // blocco permanente (bloccato_fino NULL ma flag TRUE)
+        'blocca_perm',  // blocco permanente
     ];
 
     if (!ctype_digit((string)$idRaw) || !in_array($azione, $azioniAmmesse, true)) {
@@ -72,9 +71,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $uid = (int)$idRaw;
 
-    // -----------------------------------------------------
-    // 2.1 Lettura ruolo utente:
-    // -----------------------------------------------------
+    // 2.1 Lettura ruolo utente
     $resRole = pg_query_params(
         $conn,
         "SELECT ruolo FROM utenti WHERE id = $1 LIMIT 1;",
@@ -92,11 +89,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         redirect_admin_utenti($conn);
     }
 
-    // -----------------------------------------------------
     // 2.2 Calcolo scadenza blocco (bloccato_fino)
-    //     - NULL  => blocco permanente (se bloccato=TRUE).
-    //     - Data  => blocco temporaneo fino a quella data.
-    // -----------------------------------------------------
     $until = null; // default: blocco permanente
 
     if ($azione === 'blocca_24h') {
@@ -107,9 +100,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $until = date('Y-m-d H:i:s', time() + 30 * 24 * 3600);
     }
 
-    // -----------------------------------------------------
-    // 2.3 Sblocca totale
-    // -----------------------------------------------------
+    // 2.3 Sblocca
     if ($azione === 'sblocca') {
 
         $res = pg_query_params(
@@ -130,11 +121,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         redirect_admin_utenti($conn);
     }
 
-    // -----------------------------------------------------
     // 2.4 Blocchi (temporanei o permanenti)
-    //      - bloccato = TRUE
-    //      - bloccato_fino = data scadenza (se temporaneo) o NULL (permanente)
-    // -----------------------------------------------------
     $res = pg_query_params(
         $conn,
         "UPDATE utenti
@@ -159,8 +146,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 /* =========================================================
    3) Flash messages (GET)
-   ---------------------------------------------------------
-   - Messaggi impostati in POST e mostrati una sola volta.
 ========================================================= */
 $flash_ok    = $_SESSION['flash_ok']    ?? '';
 $flash_error = $_SESSION['flash_error'] ?? '';
@@ -168,9 +153,6 @@ unset($_SESSION['flash_ok'], $_SESSION['flash_error']);
 
 /* =========================================================
    4) GET: Lista utenti
-   ---------------------------------------------------------
-   - Ordine alfabetico per cognome, nome.
-   - Carico anche ruolo e dati di blocco.
 ========================================================= */
 $resU = pg_query(
     $conn,
@@ -191,10 +173,7 @@ while ($u = pg_fetch_assoc($resU)) {
 }
 
 /* =========================================================
-   5) GET: Prenotazioni
-   ---------------------------------------------------------
-   - Pre-carichiamo lo storico prenotazioni per tutti gli utenti,
-     indicizzandolo per utente_id.
+   5) GET: Prenotazioni (storico per utente)
 ========================================================= */
 $resP = pg_query(
     $conn,
@@ -222,6 +201,32 @@ if ($resP) {
     }
 }
 
+/* =========================================================
+   5-bis) Costruzione elenco utenti bloccati
+   ---------------------------------------------------------
+   - Usiamo la stessa logica della view per determinare
+     se un utente è "bloccato adesso".
+========================================================= */
+$utenti_bloccati = [];
+$nowTsGlobal     = time();
+
+foreach ($utenti as $u) {
+    $bloccatoFlag = (
+        ($u['bloccato'] ?? 'f') === 't' ||
+        $u['bloccato'] === true ||
+        $u['bloccato'] === '1'
+    );
+
+    $bfRaw = (string)($u['bloccato_fino'] ?? '');
+    $bfTs  = ($bfRaw !== '') ? strtotime($bfRaw) : false;
+
+    $isBlockedNow = $bloccatoFlag || ($bfTs !== false && $bfTs > $nowTsGlobal);
+
+    if ($isBlockedNow) {
+        $utenti_bloccati[] = $u;
+    }
+}
+
 db_close($conn);
 
 require_once __DIR__ . '/../includes/admin_header.php';
@@ -238,10 +243,7 @@ require_once __DIR__ . '/../includes/admin_header.php';
 <?php endif; ?>
 
 <?php /* =========================================================
-        7) Intro + Ricerca live (gestita da admin.js)
-        ---------------------------------------------------------
-        - data-filter="utenti" su input
-        - data-filter-scope="utenti" sul container della lista
+        7) Intro + Ricerca live
 ========================================================= */ ?>
 <section class="card" aria-label="Gestione utenti">
     <header class="card-head">
@@ -260,11 +262,11 @@ require_once __DIR__ . '/../includes/admin_header.php';
 </section>
 
 <?php /* =========================================================
-        8) Lista utenti + storico prenotazioni
+        8) Lista completa utenti + storico prenotazioni
 ========================================================= */ ?>
 <section class="card" aria-label="Elenco utenti">
     <header class="card-head">
-        <h2>Elenco</h2>
+        <h2>Elenco completo</h2>
         <p class="muted">
             Suggerimento: apri “Prenotazioni” per visualizzare lo storico di ciascun utente.
         </p>
@@ -288,11 +290,7 @@ require_once __DIR__ . '/../includes/admin_header.php';
                 $email = (string)($u['email'] ?? '');
                 $role  = (string)($u['ruolo'] ?? '');
 
-                // -------------------------------------------------
-                // Stato blocco: combinazione di:
-                // - flag "bloccato"
-                // - campo "bloccato_fino" maggiore di adesso
-                // -------------------------------------------------
+                // Stato blocco
                 $bloccatoFlag = (
                     ($u['bloccato'] ?? 'f') === 't' ||
                     $u['bloccato'] === true ||
@@ -387,7 +385,6 @@ require_once __DIR__ . '/../includes/admin_header.php';
                     <div class="row-actions">
                         <?php if ($role === 'admin'): ?>
 
-                            <!-- Non permettiamo azioni di blocco sugli admin -->
                             <span class="muted">Account amministratore</span>
 
                         <?php elseif ($isBlockedNow): ?>
@@ -453,6 +450,77 @@ require_once __DIR__ . '/../includes/admin_header.php';
 
                         <?php endif; ?>
                     </div>
+                </article>
+            <?php endforeach; ?>
+        </div>
+    <?php endif; ?>
+</section>
+
+<?php /* =========================================================
+        9) Sezione riepilogativa: soli utenti bloccati
+========================================================= */ ?>
+<section class="card" id="blocked" aria-label="Utenti bloccati">
+    <header class="card-head">
+        <h2>Utenti bloccati (<?= count($utenti_bloccati) ?>)</h2>
+        <p class="muted">
+            Riepilogo rapido degli account attualmente bloccati.
+            Da qui puoi sbloccarli in un solo click.
+        </p>
+    </header>
+
+    <?php if (count($utenti_bloccati) === 0): ?>
+        <p class="muted" style="margin-top:12px;">
+            Nessun utente risulta bloccato in questo momento.
+        </p>
+    <?php else: ?>
+        <div class="list">
+            <?php foreach ($utenti_bloccati as $u): ?>
+                <?php
+                $uid   = (int)($u['id'] ?? 0);
+                $nome  = (string)($u['nome'] ?? '');
+                $cogn  = (string)($u['cognome'] ?? '');
+                $full  = trim($cogn . ' ' . $nome);
+
+                $email = (string)($u['email'] ?? '');
+                $role  = (string)($u['ruolo'] ?? '');
+
+                $bfRaw = (string)($u['bloccato_fino'] ?? '');
+                $bfTs  = ($bfRaw !== '') ? strtotime($bfRaw) : false;
+                $isTemp = ($bfTs !== false && $bfTs > $nowTsGlobal);
+                ?>
+                <article class="row is-blocked">
+                    <div class="row-main">
+                        <h3 class="row-title">
+                            <?= e($full !== '' ? $full : ("Utente #" . $uid)) ?>
+                        </h3>
+                        <p class="row-meta">
+                            <?= e($email) ?> • Ruolo: <?= e($role) ?> • ID #<?= $uid ?>
+                        </p>
+                        <p class="row-meta" style="margin-top:6px;">
+                            Blocco:
+                            <?php if ($isTemp): ?>
+                                <strong>temporaneo</strong> fino al
+                                <strong><?= e(fmt_datetime($bfRaw)) ?></strong>
+                            <?php else: ?>
+                                <strong>permanente</strong>
+                            <?php endif; ?>
+                        </p>
+                    </div>
+
+                    <?php if ($role !== 'admin'): ?>
+                        <div class="row-actions">
+                            <form class="inline" method="post" action="<?= e(base_url('admin/admin_utenti.php')) ?>">
+                                <input type="hidden" name="id" value="<?= $uid ?>">
+                                <input type="hidden" name="azione" value="sblocca">
+                                <button
+                                    class="btn btn-admin"
+                                    type="submit"
+                                    data-confirm="Sbloccare questo utente?">
+                                    Sblocca
+                                </button>
+                            </form>
+                        </div>
+                    <?php endif; ?>
                 </article>
             <?php endforeach; ?>
         </div>

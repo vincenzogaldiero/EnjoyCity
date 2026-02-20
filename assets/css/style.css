@@ -824,6 +824,41 @@
     border-color: rgba(239,68,68,0.35);
   }
   
+  @keyframes pulseAnnullato {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+    100% { transform: scale(1); }
+}
+
+/* Badge annullato: super evidente */
+/* Badge ANNULLATO super rosso */
+.tag-annullato {
+  background: linear-gradient(135deg, #ff1e1e, #b30000); /* rosso acceso → rosso scuro */
+  color: #ffffff;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  border-radius: 999px;
+  padding: 6px 16px;
+  border: 2px solid #7a0000;
+  box-shadow: 0 4px 10px rgba(179, 0, 0, 0.5);
+  font-size: 0.85rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  animation: pulseAnnullato 1.5s infinite;
+}
+
+.tag-annullato::before {
+  content: "⚠";
+  font-size: 0.9rem;
+}
+@keyframes pulseAnnullato {
+  0%   { transform: scale(1); }
+  50%  { transform: scale(1.06); }
+  100% { transform: scale(1); }
+}
+
   /* tag su card (sfondo chiaro) */
   .tag.cardtag{
     background: rgba(15,118,110,0.10);
@@ -1090,7 +1125,15 @@
     text-decoration:underline;
   }
   
-  
+.field-inline {
+  text-align: center;     
+  margin: 10px 0 16px;
+}
+
+.field-inline label {
+  display: inline-flex;      
+  gap: 6px;                  
+}
   /* =========================================================
      17) DASHBOARD / PANNELLI (riuso design card)
      ========================================================= */

@@ -1,35 +1,59 @@
 // assets/js/evento.js
-(function () {
+"use strict";
+
+/**
+ * Validazione form di prenotazione evento:
+ * - campo quantità obbligatorio
+ * - solo interi
+ * - range consentito: 1–10
+ */
+(function initBookingValidation() {
   const form = document.getElementById("bookingForm");
   if (!form) return;
 
   const qty = document.getElementById("quantita");
   const hint = document.getElementById("quantitaHint");
 
+  if (!qty || !hint) return;
+
+  /**
+   * Mostra messaggio di errore e aggiunge classe CSS
+   */
   function setError(msg) {
     hint.textContent = msg;
     qty.classList.add("is-invalid");
   }
 
+  /**
+   * Rimuove errore e pulisce stato visuale
+   */
   function clearError() {
     hint.textContent = "";
     qty.classList.remove("is-invalid");
   }
 
+  /**
+   * Controlla se il valore è valido
+   */
+  function isValidQuantity(value) {
+    const v = Number(value);
+    return Number.isInteger(v) && v >= 1 && v <= 10;
+  }
+
+  // Validazione in tempo reale durante la digitazione
   qty.addEventListener("input", () => {
-    const v = Number(qty.value);
-    if (!Number.isInteger(v) || v < 1 || v > 10) {
-      setError("Inserisci un numero tra 1 e 10.");
+    if (!isValidQuantity(qty.value)) {
+      setError("Inserisci un numero intero tra 1 e 10.");
     } else {
       clearError();
     }
   });
 
+  // Validazione finale al submit
   form.addEventListener("submit", (e) => {
-    const v = Number(qty.value);
-    if (!Number.isInteger(v) || v < 1 || v > 10) {
+    if (!isValidQuantity(qty.value)) {
       e.preventDefault();
-      setError("Inserisci un numero tra 1 e 10.");
+      setError("Inserisci un numero intero tra 1 e 10.");
       qty.focus();
     }
   });

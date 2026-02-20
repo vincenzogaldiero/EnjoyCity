@@ -1,18 +1,17 @@
 <?php
 // =========================================================
 // FILE: eventi.php
-// Scopo didattico:
-// - Lista eventi futuri (pagina pubblica, ma con funzionalità extra per loggati)
-// - Regola professionale:
-//   Il pubblico non vede eventi passati / archiviati / annullati.
-// - Ordinamento:
-//   - sempre per data per non loggati (anti-manomissione URL)
-//   - per loggati: data / prezzo / vicino a me (se geolocalizzazione valida)
-// - Preferenze: categorie preferite in cima (pref_sort)
-// - Sicurezza: query parametrizzate (pg_query_params)
+// Lista eventi futuri (pagina pubblica, con extra per loggati)
+// Regole di visibilità in LISTA:
+// - Mostra eventi FUTURI
+// - stato = 'approvato'
+// - archiviato = FALSE
+// - stato_evento può essere 'attivo' oppure 'annullato'
+//   (gli annullati sono visibili ma non prenotabili dal dettaglio)
 // =========================================================
 
 ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
 require_once __DIR__ . '/includes/config.php';
@@ -31,22 +30,22 @@ $conn = db_connect();
 // ---------------------------------------------------------
 $q = trim((string)($_GET['q'] ?? ''));
 
-$categoria = (string)($_GET['categoria'] ?? '');
+$categoria    = (string)($_GET['categoria'] ?? '');
 $categoria_id = null;
 if ($categoria !== '' && ctype_digit($categoria)) {
   $categoria_id = (int)$categoria;
 }
 
 // ordinamento (solo loggati)
-$ordine = (string)($_GET['ordine'] ?? 'data'); // data | prezzo | vicino
+$ordine        = (string)($_GET['ordine'] ?? 'data'); // data | prezzo | vicino
 $ordine_valido = in_array($ordine, ['data', 'prezzo', 'vicino'], true) ? $ordine : 'data';
 
-// se non loggato, forza data (anti-manipolazione url)
+// se non loggato, forziamo SEMPRE 'data'
 if (!$logged) {
   $ordine_valido = 'data';
 }
 
-// geo (solo loggati)
+// geo (solo loggati e se ordine = vicino)
 $lat = isset($_GET['lat']) && $_GET['lat'] !== '' ? (float)$_GET['lat'] : null;
 $lon = isset($_GET['lon']) && $_GET['lon'] !== '' ? (float)$_GET['lon'] : null;
 
@@ -64,22 +63,24 @@ $geo_ok = (
 $categorie = [];
 $resCat = pg_query($conn, "SELECT id, nome FROM categorie ORDER BY nome;");
 if ($resCat) {
-  while ($row = pg_fetch_assoc($resCat)) $categorie[] = $row;
+  while ($row = pg_fetch_assoc($resCat)) {
+    $categorie[] = $row;
+  }
 }
 
 // ---------------------------------------------------------
 // PREFERENZE UTENTE (solo loggati)
-// preferenze_utente: utente_id, categoria_id, ordine
 // ---------------------------------------------------------
 $prefMap = []; // categoria_id => ordine
-$prefIds = []; // lista categoria_id in ordine
+$prefIds = []; // array di categoria_id in ordine
+
 if ($logged && $user_id > 0) {
   $resPref = pg_query_params(
     $conn,
     "SELECT categoria_id, ordine
-     FROM preferenze_utente
-     WHERE utente_id = $1
-     ORDER BY ordine ASC;",
+         FROM preferenze_utente
+         WHERE utente_id = $1
+         ORDER BY ordine ASC;",
     [$user_id]
   );
   if ($resPref) {
@@ -87,55 +88,58 @@ if ($logged && $user_id > 0) {
       $cid = (int)$r['categoria_id'];
       $ord = (int)$r['ordine'];
       $prefMap[$cid] = $ord;
-      $prefIds[] = $cid;
+      $prefIds[]     = $cid;
     }
   }
 }
 
 // ---------------------------------------------------------
-// QUERY EVENTI (PUBBLICO): FUTURI + APPROVATI + ATTIVI + NON ARCHIVIATI
+// WHERE base: eventi futuri, approvati, NON archiviati
+// (stato_evento può essere 'attivo' o 'annullato')
 // ---------------------------------------------------------
 $where  = [];
 $params = [];
 $idx    = 1;
 
-// base: visibilità pubblica
 $where[] = "e.stato = 'approvato'";
 $where[] = "e.archiviato = FALSE";
-$where[] = "e.stato_evento = 'attivo'";
 $where[] = "e.data_evento >= NOW()";
 
 if ($q !== '') {
-  $where[] = "(e.titolo ILIKE $" . $idx . " OR e.luogo ILIKE $" . $idx . " OR e.descrizione_breve ILIKE $" . $idx . ")";
+  $where[] = "(e.titolo ILIKE $" . $idx .
+    " OR e.luogo ILIKE $" . $idx .
+    " OR e.descrizione_breve ILIKE $" . $idx . ")";
   $params[] = '%' . $q . '%';
   $idx++;
 }
 
 if ($categoria_id !== null) {
-  $where[] = "e.categoria_id = $" . $idx;
+  $where[]  = "e.categoria_id = $" . $idx;
   $params[] = $categoria_id;
   $idx++;
 }
 
 // ---------------------------------------------------------
-// pref_sort: preferiti prima (1,2,3...), altrimenti 9999
+// pref_sort: categorie preferite prima (1,2,3...), altrimenti 9999
 // ---------------------------------------------------------
 $prefSortSql = "9999 AS pref_sort";
+
 if ($logged && count($prefIds) > 0) {
   $case = "CASE";
   foreach ($prefIds as $cid) {
-    $case .= " WHEN e.categoria_id = $" . $idx . " THEN " . (int)$prefMap[$cid];
+    $case    .= " WHEN e.categoria_id = $" . $idx . " THEN " . (int)$prefMap[$cid];
     $params[] = $cid;
     $idx++;
   }
-  $case .= " ELSE 9999 END";
-  $prefSortSql = "$case AS pref_sort";
+  $case        .= " ELSE 9999 END";
+  $prefSortSql  = "$case AS pref_sort";
 }
 
 // ---------------------------------------------------------
-// distanza_km se geo_ok (solo eventi con coordinate)
+// distanza_km se geo_ok
 // ---------------------------------------------------------
 $distanceSelect = "NULL::double precision AS distanza_km";
+
 if ($geo_ok) {
   $latParam = "$" . $idx;
   $params[] = $lat;
@@ -146,42 +150,55 @@ if ($geo_ok) {
   $idx++;
 
   $distanceSelect = "(
-      CASE
-        WHEN e.latitudine IS NULL OR e.longitudine IS NULL THEN NULL
-        ELSE (
-          6371 * acos(
-            cos(radians($latParam)) * cos(radians(e.latitudine)) * cos(radians(e.longitudine) - radians($lonParam)) +
-            sin(radians($latParam)) * sin(radians(e.latitudine))
+        CASE
+          WHEN e.latitudine IS NULL OR e.longitudine IS NULL THEN NULL
+          ELSE (
+            6371 * acos(
+              cos(radians($latParam)) * cos(radians(e.latitudine)) *
+              cos(radians(e.longitudine) - radians($lonParam)) +
+              sin(radians($latParam)) * sin(radians(e.latitudine))
+            )
           )
-        )
-      END
+        END
     ) AS distanza_km";
 }
 
 // ---------------------------------------------------------
-// ordine scelto (dopo preferenze)
+// ORDER BY
 // ---------------------------------------------------------
 $orderSql = "e.data_evento ASC";
+
 if ($logged && $ordine_valido === 'prezzo') {
   $orderSql = "e.prezzo ASC NULLS LAST, e.data_evento ASC";
 } elseif ($geo_ok) {
   $orderSql = "distanza_km ASC NULLS LAST, e.data_evento ASC";
 }
 
+// ---------------------------------------------------------
+// QUERY FINALE
+// ---------------------------------------------------------
 $sql = "
-  SELECT
-    e.id, e.titolo, e.descrizione_breve, e.data_evento, e.luogo,
-    e.immagine, e.prezzo, e.posti_totali, e.posti_prenotati,
-    e.prenotazione_obbligatoria,
-    e.categoria_id,
-    c.nome AS categoria,
-    $prefSortSql,
-    $distanceSelect
-  FROM eventi e
-  LEFT JOIN categorie c ON c.id = e.categoria_id
-  WHERE " . implode(" AND ", $where) . "
-  ORDER BY pref_sort ASC, $orderSql, e.id ASC
-  LIMIT 60;
+    SELECT
+        e.id,
+        e.titolo,
+        e.descrizione_breve,
+        e.data_evento,
+        e.luogo,
+        e.immagine,
+        e.prezzo,
+        e.posti_totali,
+        e.posti_prenotati,
+        e.prenotazione_obbligatoria,
+        e.categoria_id,
+        e.stato_evento,
+        c.nome AS categoria,
+        $prefSortSql,
+        $distanceSelect
+    FROM eventi e
+    LEFT JOIN categorie c ON c.id = e.categoria_id
+    WHERE " . implode(' AND ', $where) . "
+    ORDER BY pref_sort ASC, $orderSql, e.id ASC
+    LIMIT 60;
 ";
 
 $res = pg_query_params($conn, $sql, $params);
@@ -214,7 +231,10 @@ require_once __DIR__ . '/includes/header.php';
 
     <!-- FILTRI -->
     <section class="search-card" aria-label="Filtra eventi">
-      <form method="get" action="<?= base_url('eventi.php') ?>" class="search-grid" id="eventiFilterForm">
+      <form method="get"
+        action="<?= base_url('eventi.php') ?>"
+        class="search-grid"
+        id="eventiFilterForm">
 
         <input
           class="input wide"
@@ -235,7 +255,7 @@ require_once __DIR__ . '/includes/header.php';
 
         <?php if ($logged): ?>
           <select name="ordine" aria-label="Ordina" id="ordineSelect">
-            <option value="data" <?= $ordine_valido === 'data' ? 'selected' : '' ?>>Più imminenti</option>
+            <option value="data" <?= $ordine_valido === 'data'   ? 'selected' : '' ?>>Più imminenti</option>
             <option value="prezzo" <?= $ordine_valido === 'prezzo' ? 'selected' : '' ?>>Prezzo (crescente)</option>
             <option value="vicino" <?= $ordine_valido === 'vicino' ? 'selected' : '' ?>>Vicino a me</option>
           </select>
@@ -260,123 +280,157 @@ require_once __DIR__ . '/includes/header.php';
         Nessun evento futuro trovato con questi filtri.
       </div>
     <?php else: ?>
+
       <div class="eventi-page">
         <section class="events-list" aria-label="Elenco eventi futuri">
-          <article class="card event-card <?= $isPreferred ? 'card-preferred' : '' ?>">
-            <?php while ($ev = pg_fetch_assoc($res)) : ?>
-              <?php
-              $id = (int)$ev['id'];
 
-              $isFree = ((float)$ev['prezzo'] <= 0);
-              $needBooking = ($ev['prenotazione_obbligatoria'] === 't' || $ev['prenotazione_obbligatoria'] === true || $ev['prenotazione_obbligatoria'] === '1');
+          <?php while ($ev = pg_fetch_assoc($res)): ?>
+            <?php
+            $id = (int)$ev['id'];
 
-              // DB pulito: informativo = posti_totali NULL
-              $isInfo = ($ev['posti_totali'] === null || $ev['posti_totali'] === '');
-              $hasLimitedSeats = (!$isInfo && (int)$ev['posti_totali'] > 0);
+            $statoEvento  = (string)($ev['stato_evento'] ?? 'attivo');
+            $isCancelled  = ($statoEvento === 'annullato');
 
-              // preferito?
-              $isPreferred = ($logged && isset($prefMap[(int)$ev['categoria_id']]));
+            $isFree      = ((float)$ev['prezzo'] <= 0);
+            $needBooking = (
+              $ev['prenotazione_obbligatoria'] === 't' ||
+              $ev['prenotazione_obbligatoria'] === true ||
+              $ev['prenotazione_obbligatoria'] === '1'
+            );
 
-              // badge tempo (solo loggati)
-              $badge = '';
-              if ($logged) {
-                $now = new DateTime('now');
-                $dt  = new DateTime((string)$ev['data_evento']);
+            // informativo se posti_totali è NULL / stringa vuota
+            $isInfo          = ($ev['posti_totali'] === null || $ev['posti_totali'] === '');
+            $hasLimitedSeats = (!$isInfo && (int)$ev['posti_totali'] > 0);
 
-                if ($dt > $now) {
-                  if ($dt->format('Y-m-d') === $now->format('Y-m-d')) {
-                    $diff  = $now->diff($dt);
-                    $hours = (int)$diff->h;
-                    $mins  = (int)$diff->i;
+            // preferito?
+            $isPreferred = ($logged && isset($prefMap[(int)$ev['categoria_id']]));
 
-                    if ($hours === 0) $badge = ($mins <= 1) ? 'Tra 1 minuto' : "Tra {$mins} minuti";
-                    elseif ($mins === 0) $badge = ($hours === 1) ? 'Tra 1 ora' : "Tra {$hours} ore";
-                    else $badge = "Tra {$hours}h {$mins}m";
+            // badge countdown tempo (solo loggati)
+            $badge = '';
+            if ($logged) {
+              $now = new DateTime('now');
+              $dt  = new DateTime((string)$ev['data_evento']);
+
+              if ($dt > $now) {
+                if ($dt->format('Y-m-d') === $now->format('Y-m-d')) {
+                  $diff  = $now->diff($dt);
+                  $hours = (int)$diff->h;
+                  $mins  = (int)$diff->i;
+
+                  if ($hours === 0) {
+                    $badge = ($mins <= 1) ? 'Tra 1 minuto' : "Tra {$mins} minuti";
+                  } elseif ($mins === 0) {
+                    $badge = ($hours === 1) ? 'Tra 1 ora' : "Tra {$hours} ore";
                   } else {
-                    $days = (int)$now->diff($dt)->days;
-                    $badge = ($days === 1) ? 'Domani' : "Tra {$days} giorni";
+                    $badge = "Tra {$hours}h {$mins}m";
                   }
+                } else {
+                  $days = (int)$now->diff($dt)->days;
+                  $badge = ($days === 1) ? 'Domani' : "Tra {$days} giorni";
                 }
               }
+            }
 
-              // distanza (solo se geo_ok e valorizzata)
-              $distLabel = '';
-              if ($logged && $geo_ok && $ev['distanza_km'] !== null && $ev['distanza_km'] !== '') {
-                $dist = (float)$ev['distanza_km'];
-                if ($dist >= 0) $distLabel = number_format($dist, 1, ',', '.') . " km";
+            // distanza (solo se geo_ok e calcolata)
+            $distLabel = '';
+            if ($logged && $geo_ok && $ev['distanza_km'] !== null && $ev['distanza_km'] !== '') {
+              $dist = (float)$ev['distanza_km'];
+              if ($dist >= 0) {
+                $distLabel = number_format($dist, 1, ',', '.') . " km";
               }
-              ?>
+            }
+            ?>
 
-              <article class="card <?= $isPreferred ? 'card-preferred' : '' ?>" aria-label="Evento <?= e($ev['titolo']) ?>">
+            <article class="card event-card <?= $isPreferred ? 'card-preferred' : '' ?> <?= $isCancelled ? 'card-cancelled' : '' ?>"
 
-                <div class="card-img">
-                  <?php if (!empty($ev['immagine'])): ?>
-                    <img src="<?= e($ev['immagine']) ?>" alt="Immagine evento: <?= e($ev['titolo']) ?>">
-                  <?php else: ?>
-                    <span aria-hidden="true"><?= e($ev['categoria'] ?? 'Evento') ?></span>
+              aria-label="Evento <?= e($ev['titolo']) ?>">
+
+              <div class="card-img">
+                <?php if (!empty($ev['immagine'])): ?>
+                  <img src="<?= e($ev['immagine']) ?>"
+                    alt="Immagine evento: <?= e($ev['titolo']) ?>">
+                <?php else: ?>
+                  <span aria-hidden="true"><?= e($ev['categoria'] ?? 'Evento') ?></span>
+                <?php endif; ?>
+
+                <div class="img-tags" aria-hidden="true">
+                  <?php if ($isPreferred): ?>
+                    <span class="tag-overlay pref">Per te</span>
                   <?php endif; ?>
 
-                  <div class="img-tags" aria-hidden="true">
-                    <?php if ($isPreferred): ?>
-                      <span class="tag-overlay pref">Per te</span>
-                    <?php endif; ?>
-
-                    <?php if ($isFree): ?>
-                      <span class="tag-overlay free">Gratis</span>
-                    <?php else: ?>
-                      <span class="tag-overlay book">€<?= e(number_format((float)$ev['prezzo'], 2, ',', '.')) ?></span>
-                    <?php endif; ?>
-
-                    <?php if ($needBooking && !$isInfo): ?>
-                      <span class="tag-overlay hot">Prenotazione</span>
-                    <?php endif; ?>
-
-                    <?php if ($distLabel !== ''): ?>
-                      <span class="tag-overlay"><?= e($distLabel) ?></span>
-                    <?php endif; ?>
-
-                    <?php if ($badge !== ''): ?>
-                      <span class="tag-overlay"><?= e($badge) ?></span>
-                    <?php endif; ?>
-                  </div>
-                </div>
-
-                <div class="card-body">
-                  <div class="tag-row">
-                    <span class="tag cardtag"><?= e($ev['categoria'] ?? 'Evento') ?></span>
-                    <span class="tag cardtag"><?= e(date("d/m/Y H:i", strtotime((string)$ev['data_evento']))) ?></span>
-
-                    <?php if ($hasLimitedSeats): ?>
-                      <span class="tag cardtag">Posti: <?= (int)$ev['posti_totali'] ?></span>
-                    <?php else: ?>
-                      <span class="tag cardtag">Accesso libero</span>
-                    <?php endif; ?>
-                  </div>
-
-                  <h3><?= e($ev['titolo']) ?></h3>
-
-                  <p class="meta">
-                    <span><?= e($ev['luogo']) ?></span>
-                  </p>
-
-                  <p class="desc"><?= e($ev['descrizione_breve']) ?></p>
-
-                  <?php if ($logged): ?>
-                    <a class="cta-login" href="<?= base_url('evento.php?id=' . urlencode((string)$id)) ?>">
-                      Maggiori dettagli <small><?= $isInfo ? '' : 'e prenota' ?></small>
-                    </a>
+                  <?php if ($isFree): ?>
+                    <span class="tag-overlay free">Gratis</span>
                   <?php else: ?>
-                    <a class="cta-login" href="<?= base_url('login.php') ?>">
-                      Accedi <small>per saperne di più</small>
-                    </a>
+                    <span class="tag-overlay book">
+                      €<?= e(number_format((float)$ev['prezzo'], 2, ',', '.')) ?>
+                    </span>
+                  <?php endif; ?>
+
+                  <?php if ($needBooking && !$isInfo && !$isCancelled): ?>
+                    <span class="tag-overlay hot">Prenotazione</span>
+                  <?php endif; ?>
+
+                  <?php if ($distLabel !== ''): ?>
+                    <span class="tag-overlay"><?= e($distLabel) ?></span>
+                  <?php endif; ?>
+
+                  <?php if ($badge !== ''): ?>
+                    <span class="tag-overlay"><?= e($badge) ?></span>
+                  <?php endif; ?>
+
+                  <?php if ($isCancelled): ?>
+                    <span class="tag-overlay tag-annullato">Annullato</span>
+                  <?php endif; ?>
+                </div>
+              </div>
+
+              <div class="card-body">
+                <div class="tag-row">
+                  <span class="tag cardtag"><?= e($ev['categoria'] ?? 'Evento') ?></span>
+                  <span class="tag cardtag">
+                    <?= e(date('d/m/Y H:i', strtotime((string)$ev['data_evento']))) ?>
+                  </span>
+
+                  <?php if ($hasLimitedSeats): ?>
+                    <span class="tag cardtag">Posti: <?= (int)$ev['posti_totali'] ?></span>
+                  <?php else: ?>
+                    <span class="tag cardtag">Accesso libero</span>
+                  <?php endif; ?>
+
+                  <?php if ($isCancelled): ?>
+                    <span class="tag cardtag tag-annullato">Annullato</span>
                   <?php endif; ?>
                 </div>
 
-              </article>
+                <h3><?= e($ev['titolo']) ?></h3>
 
-            <?php endwhile; ?>
+                <p class="meta">
+                  <span><?= e($ev['luogo']) ?></span>
+                </p>
+
+                <p class="desc"><?= e($ev['descrizione_breve']) ?></p>
+
+                <?php if ($logged): ?>
+                  <a class="cta-login"
+                    href="<?= base_url('evento.php?id=' . urlencode((string)$id)) ?>">
+                    <?= $isCancelled
+                      ? 'Vedi dettagli <small>evento annullato</small>'
+                      : 'Maggiori dettagli <small>' . ($isInfo ? '' : 'e prenota') . '</small>' ?>
+                  </a>
+                <?php else: ?>
+                  <a class="cta-login" href="<?= base_url('login.php') ?>">
+                    Accedi <small>per saperne di più</small>
+                  </a>
+                <?php endif; ?>
+              </div>
+
+            </article>
+
+          <?php endwhile; ?>
+
         </section>
       </div>
+
     <?php endif; ?>
 
   </div>
@@ -398,6 +452,7 @@ require_once __DIR__ . '/includes/header.php';
           alert("Geolocalizzazione non supportata dal browser.");
           return;
         }
+
         navigator.geolocation.getCurrentPosition(function(pos) {
           document.getElementById("geo-lat").value = pos.coords.latitude;
           document.getElementById("geo-lon").value = pos.coords.longitude;
@@ -413,7 +468,7 @@ require_once __DIR__ . '/includes/header.php';
 
       btn.addEventListener("click", requestGeoAndSubmit);
 
-      // se scelgo "vicino" dal select senza coordinate: chiedo geo al submit
+      // Se seleziono "vicino" dal select senza coordinate → chiedo geo al submit
       form.addEventListener("submit", function(e) {
         if (ordineSelect.value !== "vicino") return;
         const lat = document.getElementById("geo-lat").value;

@@ -29,7 +29,7 @@
 }
 
 .admin-topbar-inner {
-  max-width: 100%px;
+  max-width: 100%;
   margin: 0;
   padding: 12px 24px;
 
@@ -222,11 +222,13 @@
 .admin .kpi-card--warn {
   border-color: rgba(234,179,8,.7);            /* giallo */
   box-shadow: 0 10px 25px rgba(234,179,8,.18);
+  animation: pulseAnnullato 1.5s infinite;
 }
 
 .admin .kpi-card--danger {
   border-color: rgba(185,28,28,.7);            /* rosso */
   box-shadow: 0 10px 25px rgba(185,28,28,.18);
+  animation: pulseAnnullato 1.5s infinite;
 }
 
 .admin .kpi-card--muted {

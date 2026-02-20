@@ -1,7 +1,15 @@
 // assets/js/dashboard.js
+"use strict";
 
+/**
+ * Converte un delta in millisecondi in una stringa tipo:
+ * - "Tra 2g 3h 10m"
+ * - "Tra 3h 20m 15s"
+ * - "Tra 45s"
+ */
 function formatCountdown(ms) {
   if (ms <= 0) return "È iniziato!";
+
   const sec = Math.floor(ms / 1000);
   const d = Math.floor(sec / 86400);
   const h = Math.floor((sec % 86400) / 3600);
@@ -14,64 +22,125 @@ function formatCountdown(ms) {
   return `Tra ${s}s`;
 }
 
-// countdown
-(function initCountdown() {
+/**
+ * Inizializza i countdown sugli elementi che hanno l’attributo data-countdown
+ * (es. <span data-countdown="2025-02-10T20:00:00"></span>)
+ */
+function initCountdown() {
   const nodes = document.querySelectorAll("[data-countdown]");
   if (!nodes.length) return;
 
   function tick() {
     const now = Date.now();
+
     nodes.forEach((el) => {
-      const target = new Date(el.getAttribute("data-countdown")).getTime();
-      el.textContent = formatCountdown(target - now);
+      const raw = el.getAttribute("data-countdown");
+      const target = new Date(raw).getTime();
+
+      if (Number.isNaN(target)) {
+        // In caso di data non valida, evito NaN a schermo
+        el.textContent = "Data non valida";
+        return;
+      }
+
+      const diff = target - now;
+      el.textContent = formatCountdown(diff);
     });
   }
 
+  // Primo aggiornamento immediato
   tick();
+  // Aggiorno ogni secondo
   setInterval(tick, 1000);
-})();
+}
 
-// validazione ricerca (nuova search: q opzionale, se presente min 2 char)
-document.getElementById("searchForm")?.addEventListener("submit", (e) => {
-  const q = document.querySelector('input[name="q"]')?.value.trim() ?? "";
-  if (q && q.length < 2) {
-    e.preventDefault();
-    alert("Inserisci almeno 2 caratteri nella ricerca.");
-  }
-});
+/**
+ * Validazione form di ricerca:
+ * - campo q opzionale
+ * - se presente, deve avere almeno 2 caratteri
+ */
+function initSearchValidation() {
+  const form = document.getElementById("searchForm");
+  if (!form) return;
 
-// validazione recensione (voto obbligatorio + testo 10-250)
-document.getElementById("reviewForm")?.addEventListener("submit", (e) => {
-  const votoEl = document.getElementById("voto");
-  const testoEl = document.getElementById("testo");
+  form.addEventListener("submit", (e) => {
+    const input = form.querySelector('input[name="q"]');
+    const q = input?.value.trim() ?? "";
 
-  const voto = votoEl?.value ?? "";
-  const testo = (testoEl?.value ?? "").trim();
-
-  // reset classi
-  votoEl?.classList.remove("is-invalid");
-  testoEl?.classList.remove("is-invalid");
-
-  if (!voto) {
-    e.preventDefault();
-    votoEl?.classList.add("is-invalid");
-    alert("Seleziona un voto (1-5).");
-    return;
-  }
-
-  if (testo.length < 10 || testo.length > 250) {
-    e.preventDefault();
-    testoEl?.classList.add("is-invalid");
-    alert("Scrivi una recensione tra 10 e 250 caratteri.");
-    return;
-  }
-});
-
-// conferme (annulla prenotazione / altri)
-document.querySelectorAll("[data-confirm]")?.forEach((el) => {
-  const eventType = el.tagName.toLowerCase() === "form" ? "submit" : "click";
-  el.addEventListener(eventType, (e) => {
-    const msg = el.getAttribute("data-confirm") || "Sei sicuro?";
-    if (!window.confirm(msg)) e.preventDefault();
+    if (q && q.length < 2) {
+      e.preventDefault();
+      alert("Inserisci almeno 2 caratteri nella ricerca.");
+    }
   });
+}
+
+/**
+ * Validazione form recensione:
+ * - voto obbligatorio (select o input con id="voto")
+ * - testo obbligatorio tra 10 e 250 caratteri
+ * Aggiunge classe .is-invalid in caso di errore.
+ */
+function initReviewValidation() {
+  const form = document.getElementById("reviewForm");
+  if (!form) return;
+
+  form.addEventListener("submit", (e) => {
+    const votoEl = document.getElementById("voto");
+    const testoEl = document.getElementById("testo");
+
+    const voto = votoEl?.value ?? "";
+    const testo = (testoEl?.value ?? "").trim();
+
+    // reset classi
+    votoEl?.classList.remove("is-invalid");
+    testoEl?.classList.remove("is-invalid");
+
+    // voto obbligatorio
+    if (!voto) {
+      e.preventDefault();
+      votoEl?.classList.add("is-invalid");
+      alert("Seleziona un voto (1-5).");
+      return;
+    }
+
+    // lunghezza testo 10–250 caratteri
+    if (testo.length < 10 || testo.length > 250) {
+      e.preventDefault();
+      testoEl?.classList.add("is-invalid");
+      alert("Scrivi una recensione tra 10 e 250 caratteri.");
+      return;
+    }
+  });
+}
+
+/**
+ * Conferme generiche:
+ * - per tutti gli elementi che hanno data-confirm
+ * - se è un form → intercetto submit
+ * - altrimenti intercetto click
+ */
+function initConfirmDialogs() {
+  const confirmables = document.querySelectorAll("[data-confirm]");
+  if (!confirmables.length) return;
+
+  confirmables.forEach((el) => {
+    const eventType = el.tagName.toLowerCase() === "form" ? "submit" : "click";
+
+    el.addEventListener(eventType, (e) => {
+      const msg = el.getAttribute("data-confirm") || "Sei sicuro?";
+      if (!window.confirm(msg)) {
+        e.preventDefault();
+      }
+    });
+  });
+}
+
+// ===============================
+// BOOTSTRAP SCRIPT
+// ===============================
+document.addEventListener("DOMContentLoaded", () => {
+  initCountdown();
+  initSearchValidation();
+  initReviewValidation();
+  initConfirmDialogs();
 });
