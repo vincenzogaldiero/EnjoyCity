@@ -6,9 +6,9 @@
 
 "use strict";
 
-// ============================================================
-// HELPERS GENERICI PER I FORM (email + errori)
-// ============================================================
+// ===============================================================
+// Helpers generici per validazione form (email + gestione errori)
+// ===============================================================
 
 /**
  * Controlla se una stringa ha un formato email accettabile.
@@ -48,22 +48,22 @@ function clearFieldError(input, hintEl) {
   }
 }
 
-// ============================================================
-// INIT SU DOM READY
-// ============================================================
+// ===============================================
+// Inizializzazione globale al caricamento del DOM
+// ===============================================
 document.addEventListener("DOMContentLoaded", () => {
   initTicker();
   initLoginValidation();
   initRegisterValidation();
 });
 
-// ============================================================
-// TICKER (marquee eventi in homepage)
-// ============================================================
+// ========================
+// Ticker eventi (homepage)
+// ========================
 
 /**
  * Crea un ticker orizzontale infinito clonando gli item esistenti
- * e traslandoli con requestAnimationFrame.
+ * e animandoli con requestAnimationFrame.
  */
 function initTicker() {
   const track = document.querySelector(".ticker-track");
@@ -81,7 +81,7 @@ function initTicker() {
   function animate() {
     x -= speed;
 
-    // quando abbiamo traslato metà della lunghezza, resettiamo
+    // Reset quando metà della lunghezza è stata percorsa
     const half = track.scrollWidth / 2;
     if (Math.abs(x) >= half) {
       x = 0;
@@ -95,7 +95,7 @@ function initTicker() {
 }
 
 // ============================================================
-// LOGIN VALIDATION
+// Validazione login
 // ============================================================
 
 /**
@@ -156,7 +156,7 @@ function initLoginValidation() {
 }
 
 // ============================================================
-// REGISTER VALIDATION
+// Validazione registrazione
 // ============================================================
 
 /**
@@ -164,7 +164,7 @@ function initLoginValidation() {
  * - nome e cognome obbligatori
  * - email obbligatoria e valida
  * - password obbligatoria, minimo 8 caratteri
- * - conferma password obbligatoria e uguale alla password
+ * - conferma password obbligatoria e uguale
  */
 function initRegisterValidation() {
   const registerForm = document.getElementById("registerForm");
@@ -248,7 +248,7 @@ function initRegisterValidation() {
     if (!el) return;
     el.addEventListener("blur", validateRegister);
 
-    // su password/conferma aggiorno in tempo reale mentre l'utente scrive
+    // Su password/conferma aggiorno in tempo reale mentre l'utente scrive
     if (el === password || el === conferma) {
       el.addEventListener("input", validateRegister);
     }
@@ -269,7 +269,7 @@ function initRegisterValidation() {
  * Gestione accordion FAQ:
  * - usa event delegation sul document
  * - ogni bottone .accordion-btn controlla un pannello via aria-controls
- * - lo stato aperto/chiuso è indicato da aria-expanded
+ * - lo stato aperto/chiuso è indicato da aria-expanded 
  */
 document.addEventListener("click", (e) => {
   const btn = e.target.closest(".accordion-btn");
@@ -286,13 +286,13 @@ document.addEventListener("click", (e) => {
     btn.setAttribute("aria-expanded", "false");
     btn.classList.remove("is-open");
 
-    // transizione altezza: dallo stato attuale a 0
+    // Transizione altezza: dallo stato attuale a 0
     panel.style.maxHeight = panel.scrollHeight + "px";
     requestAnimationFrame(() => {
       panel.style.maxHeight = "0px";
     });
 
-    // nasconde il contenuto dopo la transizione
+    // Nasconde il contenuto dopo la transizione
     setTimeout(() => {
       panel.hidden = true;
     }, 220);
