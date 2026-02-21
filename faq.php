@@ -30,7 +30,7 @@ require_once __DIR__ . '/includes/header.php';
         // Possibilità di scrivere manualmente una FAQ, aggiungendo una riga
         $faqs = [
             ["Che cos’è EnjoyCity?", "È una piattaforma che promuove eventi locali per farti vivere la città come se fossi un turista."],
-            ["Devo registrarmi per vedere gli eventi?", "No, gli eventi sono visibili a tutti. Registrandoti puoi proporre eventi e interagire di più con il nostro team."],
+            ["Devo registrarmi per vedere gli eventi?", "No, gli eventi sono visibili a tutti. Registrandoti puoi proporne di nuovi e interagire di più con il nostro team."],
             ["Chi può proporre un evento?", "I soli utenti registrati possono proporre eventi dalla pagina dedicata; l'amministratore valuterà se pubblicarli."],
             ["Perché alcuni eventi non hanno posti disponibili?", "Perché esistono anche eventi informativi o ad accesso libero: in quel caso non sono previste prenotazioni."],
             ["Come vengono approvati gli eventi?", "Ogni evento proposto viene controllato dall’amministratore per garantire qualità e coerenza delle informazioni."],
