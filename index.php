@@ -26,7 +26,13 @@ $quando    = trim($_GET['quando'] ?? '');      // yyyy-mm-dd
 $dove      = trim($_GET['dove'] ?? '');
 $categoria = trim($_GET['categoria'] ?? '');   // id categoria
 
-$where  = ["e.stato = 'approvato'"];
+// FILTRI DI BASE: solo eventi pubblici, futuri, NON archiviati, attivi
+$where  = [
+    "e.stato = 'approvato'",
+    "e.archiviato IS FALSE",
+    "e.stato_evento = 'attivo'"
+];
+
 $params = [];
 $i = 1;
 
@@ -36,27 +42,35 @@ if ($q !== '') {
     $params[] = "%$q%";
     $i++;
 }
+
 if ($dove !== '') {
     $where[]  = "(e.luogo ILIKE $" . $i . ")";
     $params[] = "%$dove%";
     $i++;
 }
+
 if ($categoria !== '' && ctype_digit($categoria)) {
     $where[]  = "e.categoria_id = $" . $i;
     $params[] = (int)$categoria;
     $i++;
 }
+
+// Se l’utente ha scelto una data, usiamo il range di quel giorno.
+// Altrimenti mostriamo solo eventi futuri da ADESSO in poi.
 if ($quando !== '') {
     $where[]  = "(e.data_evento >= $" . $i . " AND e.data_evento <= $" . ($i + 1) . ")";
     $params[] = $quando . " 00:00:00";
     $params[] = $quando . " 23:59:59";
     $i += 2;
+} else {
+    $where[] = "e.data_evento >= NOW()";
 }
 
 $whereSql = implode(" AND ", $where);
 
 /* --------------------------------------------------
    Selezione prossimi eventi per il banner scorrevole
+   (solo eventi futuri, approvati, attivi, non archiviati)
 -------------------------------------------------- */
 $sqlNext = "
 SELECT e.id, e.titolo, e.data_evento, e.luogo, e.immagine,
@@ -65,6 +79,8 @@ SELECT e.id, e.titolo, e.data_evento, e.luogo, e.immagine,
 FROM eventi e
 LEFT JOIN categorie c ON c.id = e.categoria_id
 WHERE e.stato = 'approvato'
+  AND e.archiviato IS FALSE
+  AND e.stato_evento = 'attivo'
   AND e.data_evento >= NOW()
 ORDER BY e.data_evento ASC
 LIMIT 10;
@@ -78,6 +94,7 @@ if ($resNext) {
 
 /* ------------------------------------------------------
    Selezione eventi in evidenza (ordinati per popolarità)
+   Usa i filtri costruiti sopra (sempre futuri, non archiviati, attivi)
 ------------------------------------------------------ */
 $sqlHot = "
 SELECT e.id, e.titolo, e.descrizione_breve, e.immagine, e.data_evento, e.luogo,

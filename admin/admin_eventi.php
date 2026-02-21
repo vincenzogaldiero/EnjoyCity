@@ -420,7 +420,7 @@ function render_event_row(array $ev, string $section): void
     <section class="card" id="archived" aria-label="Eventi archiviati">
         <header class="card-head">
             <h2>Archiviati (<?= count($eventi_archived) ?>)</h2>
-            <p class="muted">Non visibili al pubblico. Restano nel database per storico e rendicontazione.</p>
+            <p class="muted">Non visibili al pubblico. Restano nel database per storico.</p>
         </header>
 
         <?php if (!$eventi_archived): ?>

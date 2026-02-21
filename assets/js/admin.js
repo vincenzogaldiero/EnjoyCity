@@ -111,10 +111,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const parts = [];
   if (pendingEvents > 0) {
-    parts.push(`${pendingEvents} evento${pendingEvents > 1 ? "i" : ""} da approvare`);
+    parts.push(`${pendingEvents} event${pendingEvents > 1 ? "i" : ""} da approvare`);
   }
   if (pendingReviews > 0) {
-    parts.push(`${pendingReviews} recensione${pendingReviews > 1 ? "i" : ""} da moderare`);
+    parts.push(`${pendingReviews} recension${pendingReviews > 1 ? "i" : ""} da moderare`);
   }
 
   const msg = "Hai " + parts.join(" e ") + ".";
