@@ -213,7 +213,7 @@ require_once __DIR__ . '/includes/header.php';
     <?php if (count($hotEvents) === 0): ?>
         <div class="empty">Nessun evento trovato con i filtri selezionati.</div>
     <?php else: ?>
-        <div class="grid">
+        <div class="evidenza-row">
             <?php foreach ($hotEvents as $ev):
                 $img = trim($ev['immagine'] ?? '');
                 $imgSrc = ($img !== '') ? e($img) : 'assets/img/event-placeholder.jpg';

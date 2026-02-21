@@ -4,17 +4,8 @@
 // Funzioni:
 // 1) Conferma azioni pericolose (data-confirm)
 // 2) Ricerca live client-side su liste/tabelle (data-filter + data-filter-scope + data-filter-row)
-//    - Esempio utenti:
-//        <input data-filter="utenti">
-//        <div data-filter-scope="utenti">
-//          <article data-filter-row>...</article>
-//        </div>
-//    - Esempio eventi:
-//        <input data-filter="eventi">
-//        <div data-filter-scope="eventi">
-//          <article data-filter-row>...</article>
-//        </div>
 // 3) Piccole migliorie UX (tooltip, reset ricerca con ESC)
+// 4) Popup notifica moderazione (eventi/recensioni in attesa)
 //
 document.addEventListener("DOMContentLoaded", () => {
   /* =========================================================
@@ -98,5 +89,72 @@ document.addEventListener("DOMContentLoaded", () => {
 
   document.querySelectorAll(".is-pending").forEach((el) => {
     if (!el.getAttribute("title")) el.setAttribute("title", "Elemento in attesa");
+  });
+
+  /* =========================================================
+     4) POPUP NOTIFICA MODERAZIONE (eventi/recensioni in attesa)
+        - Usa window.EC_ADMIN definito in admin_dashboard.php
+        - Mostra un overlay solo se ci sono "nuovi" elementi
+     ========================================================= */
+  const cfg = window.EC_ADMIN || {};
+  const pendingEvents  = Number(cfg.pendingEvents || 0);
+  const pendingReviews = Number(cfg.pendingReviews || 0);
+  const totalPending   = pendingEvents + pendingReviews;
+
+  // Se showPopup è false o non c'è nulla in attesa, non faccio niente
+  if (!cfg.showPopup || totalPending <= 0) {
+    return;
+  }
+
+  const popup = document.createElement("div");
+  popup.className = "admin-popup-moderazione";
+
+  const parts = [];
+  if (pendingEvents > 0) {
+    parts.push(`${pendingEvents} evento${pendingEvents > 1 ? "i" : ""} da approvare`);
+  }
+  if (pendingReviews > 0) {
+    parts.push(`${pendingReviews} recensione${pendingReviews > 1 ? "i" : ""} da moderare`);
+  }
+
+  const msg = "Hai " + parts.join(" e ") + ".";
+
+  popup.innerHTML = `
+    <div class="admin-popup-inner">
+      <button type="button" class="admin-popup-close" aria-label="Chiudi">&times;</button>
+      <h2>Moderazione in sospeso</h2>
+      <p>${msg}</p>
+      <div class="admin-popup-actions">
+        ${pendingEvents > 0
+          ? `<a href="${cfg.urlEventi || "#"}" class="btn btn-primary">Vai agli eventi</a>`
+          : ""
+        }
+        ${pendingReviews > 0
+          ? `<a href="${cfg.urlRecensioni || "#"}" class="btn btn-secondary">Vai alle recensioni</a>`
+          : ""
+        }
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(popup);
+
+  const closeBtn = popup.querySelector(".admin-popup-close");
+  if (closeBtn) {
+    closeBtn.addEventListener("click", () => popup.remove());
+  }
+
+  // Chiudi cliccando sullo sfondo scuro
+  popup.addEventListener("click", (e) => {
+    if (e.target === popup) {
+      popup.remove();
+    }
+  });
+
+  // Chiudi il popup quando clicchi su uno dei bottoni "Vai a..."
+  popup.querySelectorAll(".admin-popup-actions a").forEach((link) => {
+    link.addEventListener("click", () => {
+      popup.remove();
+    });
   });
 });

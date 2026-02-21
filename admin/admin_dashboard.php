@@ -6,6 +6,7 @@
 // - Code di moderazione (eventi e recensioni)
 // - Pannello di azioni rapide per raggiungere le sezioni chiave
 // - Cookie "ec_admin_layout" per preferenza layout dashboard
+// - Popup di notifica quando ci sono elementi in attesa di moderazione
 // =========================================================
 
 ini_set('display_errors', 1);
@@ -141,9 +142,34 @@ $kpi_bloccati = count_q($conn, "
     FROM utenti
     WHERE bloccato = TRUE
 ");
-
 // =========================================================
-// 5) Code di moderazione
+// 4-bis) Logica "nuovi elementi in attesa" per popup
+// =========================================================
+$pending_cookie_name = 'ec_admin_last_pending';
+$total_pending_moderazione = (int)$kpi_eventi_attesa + (int)$kpi_rec_attesa;
+
+// Valore precedente salvato nel cookie (se presente)
+$last_pending = isset($_COOKIE[$pending_cookie_name])
+    ? (int)$_COOKIE[$pending_cookie_name]
+    : 0;
+
+// Mostro il popup SOLO se:
+// - c'è almeno 1 elemento in attesa
+// - il totale è maggiore del valore "visto" l'ultima volta
+$show_popup = false;
+if ($total_pending_moderazione > 0 && $total_pending_moderazione > $last_pending) {
+    $show_popup = true;
+}
+
+// Aggiorno il cookie (così la prossima volta so quanti ne aveva già visti)
+setcookie(
+    $pending_cookie_name,
+    (string)$total_pending_moderazione,
+    time() + (60 * 60 * 24 * 30),
+    '/'
+);
+// =========================================================
+// 5) Code di moderazione (lista rapida)
 // =========================================================
 
 // Eventi in attesa
@@ -392,6 +418,7 @@ $cls_blocc    = $kpi_bloccati          > 0 ? 'kpi-card kpi-card--danger' : 'kpi-
 
         </div>
     </section>
+
     <!-- =========================================================
          10) Coda di moderazione: eventi + recensioni
     ========================================================= -->
@@ -523,5 +550,19 @@ $cls_blocc    = $kpi_bloccati          > 0 ? 'kpi-card kpi-card--danger' : 'kpi-
 
 <?php endif; // fine layout full 
 ?>
+
+<!-- =========================================================
+     11) Config JS per popup notifica moderazione
+     - Espone i conteggi e gli URL per il popup in admin.js
+========================================================= -->
+<script>
+    window.EC_ADMIN = {
+        pendingEvents: <?= (int)$kpi_eventi_attesa ?>,
+        pendingReviews: <?= (int)$kpi_rec_attesa ?>,
+        showPopup: <?= $show_popup ? 'true' : 'false' ?>,
+        urlEventi: "<?= base_url('admin/admin_eventi.php#pending') ?>",
+        urlRecensioni: "#sec-reviews"
+    };
+</script>
 
 <?php require_once __DIR__ . '/../includes/admin_footer.php'; ?>
