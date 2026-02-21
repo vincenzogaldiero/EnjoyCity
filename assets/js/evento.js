@@ -3,11 +3,13 @@
 
 /**
  * Validazione form di prenotazione evento:
- * - campo quantità obbligatorio
- * - solo interi
+ * - quantità obbligatoria
+ * - solo numeri interi
  * - range consentito: 1–10
  */
 (function initBookingValidation() {
+
+  // Riferimenti agli elementi del form
   const form = document.getElementById("bookingForm");
   if (!form) return;
 
@@ -25,7 +27,7 @@
   }
 
   /**
-   * Rimuove errore e pulisce stato visuale
+   * Ripristina lo stato normale del campo
    */
   function clearError() {
     hint.textContent = "";
@@ -33,7 +35,7 @@
   }
 
   /**
-   * Controlla se il valore è valido
+   * Controlla se la quantità è un intero valido tra 1 e 10
    */
   function isValidQuantity(value) {
     const v = Number(value);
