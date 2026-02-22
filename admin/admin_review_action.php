@@ -2,39 +2,59 @@
 // ============================================================
 // FILE: admin/admin_review_action.php
 //
-// Area Admin - Moderazione recensioni
-// Scopo:
-// - Gestire la moderazione delle recensioni lato admin
-//   (azioni: approva / rifiuta).
-// - Una recensione "approvata" sarà visibile nella sezione
-//   pubblica "Dicono di noi".
+// AREA ADMIN - Moderazione recensioni
+// ------------------------------------------------------------
+// Questo script gestisce le azioni di moderazione delle
+// recensioni lato amministratore.
+//
+// Azioni consentite:
+// - approva  → la recensione diventa visibile pubblicamente
+// - rifiuta  → la recensione non sarà pubblicata
+//
+// Il file NON genera output HTML:
+// - esegue logica server-side
+// - aggiorna il database
+// - imposta messaggi flash in sessione
+// - effettua redirect (pattern PRG: Post → Redirect → Get)
 // ============================================================
 
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
+// Inclusione configurazione generale:
+// - connessione DB PostgreSQL
+// - funzione base_url()
+// - gestione sessioni
 require_once __DIR__ . '/../includes/config.php';
 
+// Avvio sessione se non già attiva
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
 // ------------------------------------------------------------
-// Helper: redirect di comodo
-// - Se $conn è valorizzato, chiude la connessione DB.
-// - Torna alla pagina precedente se è in area admin,
-//   altrimenti alla dashboard admin.
+// Helper: redirect_back_reviews()
+// ------------------------------------------------------------
+// Funzione di utilità per:
+// - chiudere la connessione al DB (se aperta)
+// - riportare l’admin alla pagina precedente
+// - fallback sicuro verso la dashboard admin
+//
+// Questo evita redirect hardcoded e migliora UX.
 // ------------------------------------------------------------
 function redirect_back_reviews($conn = null): void
 {
+    // Se esiste una connessione aperta, la chiudiamo
     if ($conn) {
         db_close($conn);
     }
 
+    // Recupero pagina di provenienza
     $back = $_SERVER['HTTP_REFERER'] ?? '';
 
-    // Fallback sicuro: se non arrivo da una pagina admin, vado in dashboard
+    // Sicurezza: se il referer non è in area admin
+    // oppure è vuoto, reindirizzo alla dashboard
     if ($back === '' || strpos($back, 'admin/') === false) {
         $back = base_url("admin/admin_dashboard.php");
     }
@@ -44,7 +64,14 @@ function redirect_back_reviews($conn = null): void
 }
 
 // ============================================================
-// 1) AUTH GUARD: accesso solo admin
+// 1) AUTHORIZATION GUARD
+// ------------------------------------------------------------
+// Accesso consentito SOLO a utenti:
+// - autenticati
+// - con ruolo = 'admin'
+//
+// Questo controllo protegge l’endpoint da accessi diretti
+// non autorizzati.
 // ============================================================
 if (
     !isset($_SESSION['logged']) || $_SESSION['logged'] !== true ||
@@ -56,8 +83,11 @@ if (
 }
 
 // ============================================================
-// 2) Guard: SOLO POST
-//    Le azioni di moderazione non devono essere inviate via GET.
+// 2) METHOD GUARD
+// ------------------------------------------------------------
+// Le azioni di moderazione devono arrivare SOLO via POST.
+// Evitiamo che un utente possa approvare/rifiutare tramite
+// semplice URL (GET).
 // ============================================================
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     header("Location: " . base_url("admin/admin_dashboard.php"));
@@ -65,23 +95,30 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 // ============================================================
-// 3) LETTURA INPUT (POST) + VALIDAZIONE
-//    - id: intero > 0
-//    - azione: 'approva' oppure 'rifiuta'
-+ // ============================================================
+// 3) LETTURA INPUT + VALIDAZIONE
+// ------------------------------------------------------------
+// - id recensione: deve essere intero positivo
+// - azione: deve appartenere alla whitelist consentita
+// ============================================================
+
+// Recupero dati POST
 $idRaw  = $_POST['id'] ?? '';
 $azione = strtolower(trim((string)($_POST['azione'] ?? '')));
 
-// Whitelist azioni consentite
+// Whitelist azioni consentite (approccio sicuro)
 $azioni_valide = ['approva', 'rifiuta'];
 
+// Validazione ID e azione
 if (!ctype_digit((string)$idRaw) || !in_array($azione, $azioni_valide, true)) {
     $_SESSION['flash_error'] = "Richiesta non valida per la moderazione recensione.";
     header("Location: " . base_url("admin/admin_dashboard.php"));
     exit;
 }
 
+// Conversione a intero
 $id = (int)$idRaw;
+
+// Ulteriore controllo su ID > 0
 if ($id <= 0) {
     $_SESSION['flash_error'] = "ID recensione non valido.";
     header("Location: " . base_url("admin/admin_dashboard.php"));
@@ -89,14 +126,17 @@ if ($id <= 0) {
 }
 
 // ============================================================
-// 4) DB CONNECT
+// 4) CONNESSIONE AL DATABASE
 // ============================================================
 $conn = db_connect();
 
 // ============================================================
-// 5) Lettura stato attuale della recensione
-//      approva/rifiuta ha senso solo se la recensione è "in_attesa".
+// 5) LETTURA STATO ATTUALE RECENSIONE
+// ------------------------------------------------------------
+// È possibile approvare o rifiutare SOLO recensioni
+// che si trovano nello stato "in_attesa".
 // ============================================================
+
 $resCur = pg_query_params(
     $conn,
     "SELECT id, stato
@@ -106,8 +146,10 @@ $resCur = pg_query_params(
     [$id]
 );
 
+// Recupero risultato come array associativo
 $cur = $resCur ? pg_fetch_assoc($resCur) : null;
 
+// Se la recensione non esiste → errore
 if (!$cur) {
     $_SESSION['flash_error'] = "Recensione non trovata (ID: $id).";
     redirect_back_reviews($conn);
@@ -116,8 +158,8 @@ if (!$cur) {
 $stato_attuale = (string)($cur['stato'] ?? '');
 
 // ------------------------------------------------------------
-// - Ha senso approvare/rifiutare SOLO se la recensione è ancora
-//   in attesa ("in_attesa").
+// Regola di business:
+// L'admin può agire SOLO su recensioni ancora in attesa.
 // ------------------------------------------------------------
 if ($stato_attuale !== 'in_attesa') {
     $_SESSION['flash_error'] = "Azione non consentita: puoi approvare o rifiutare solo recensioni in attesa.";
@@ -125,14 +167,22 @@ if ($stato_attuale !== 'in_attesa') {
 }
 
 // ============================================================
-// 6) MAPPATURA AZIONE -> STATO DB
-//    Il DB accetta solo: approvato / in_attesa / rifiutato
+// 6) MAPPATURA AZIONE → NUOVO STATO DB
+// ------------------------------------------------------------
+// Valori ammessi nel DB:
+// - approvato
+// - in_attesa
+// - rifiutato
 // ============================================================
+
 $nuovo_stato = ($azione === 'approva') ? 'approvato' : 'rifiutato';
 
 // ============================================================
-// 7) UPDATE SICURO (query parametrizzata)
+// 7) UPDATE SICURO (Query Parametrizzata)
+// ------------------------------------------------------------
+// Uso di pg_query_params per prevenire SQL Injection.
 // ============================================================
+
 $sql = "
     UPDATE recensioni
     SET stato = $1
@@ -142,23 +192,34 @@ $sql = "
 $res = pg_query_params($conn, $sql, [$nuovo_stato, $id]);
 
 // ============================================================
-// 8) FEEDBACK (flash) + redirect
+// 8) FEEDBACK (FLASH MESSAGE) + REDIRECT
+// ------------------------------------------------------------
+// Pattern PRG:
+// - elaboro POST
+// - salvo messaggio in sessione
+// - reindirizzo alla pagina precedente
 // ============================================================
+
 if ($res) {
+
+    // Numero righe aggiornate
     $affected = pg_affected_rows($res);
 
     if ($affected > 0) {
+
         if ($azione === 'approva') {
             $_SESSION['flash_ok'] = "Recensione #$id approvata: ora è visibile in \"Dicono di noi\".";
         } else {
             $_SESSION['flash_ok'] = "Recensione #$id rifiutata.";
         }
     } else {
-        // Query eseguita ma nessuna riga aggiornata (caso limite)
+        // Caso limite: UPDATE eseguito ma nessuna riga modificata
         $_SESSION['flash_error'] = "Nessuna recensione aggiornata (ID: $id).";
     }
 } else {
+    // Errore a livello database
     $_SESSION['flash_error'] = "Errore DB durante l'aggiornamento della recensione: " . pg_last_error($conn);
 }
 
+// Redirect finale con chiusura connessione
 redirect_back_reviews($conn);

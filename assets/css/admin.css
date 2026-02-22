@@ -1,7 +1,6 @@
 /* ============================================================
    ADMIN THEME - EnjoyCity
    ------------------------------------------------------------
-   - Scoped su .admin (non sporca il sito pubblico)
    - Richiede style.css (variabili :root)
    - Layout: Topbar + Sidebar + Main
    - Design coerente con card system globale
@@ -9,6 +8,7 @@
 
 /* ============================================================
    BASE ADMIN SCOPE
+   - wrapper principale dell’area admin
 ============================================================ */
 
 .admin {
@@ -17,6 +17,7 @@
 
 /* ============================================================
    TOPBAR (Header superiore)
+   - Barra fissa con brand + azioni rapide
 ============================================================ */
 
 .admin-topbar {
@@ -48,7 +49,7 @@
   font-weight: 700;
 }
 
-/* Brand */
+/* Brand (logo + testo) */
 .admin-brand {
   display: flex;
   align-items: center;
@@ -87,6 +88,7 @@
 
 /* ============================================================
    LAYOUT SHELL (Sidebar + Main)
+   - Griglia principale delle pagine admin
 ============================================================ */
 
 .admin-shell {
@@ -103,9 +105,10 @@
 
 /* ============================================================
    SIDEBAR
+   - Menu laterale con sticky rispetto alla topbar
 ============================================================ */
 
-/* Altezza topbar per sticky sidebar */
+/* Altezza topbar per sticky sidebar (variabile dedicata) */
 :root {
   --admin-topbar-h: 76px;
 }
@@ -122,7 +125,7 @@
   top: var(--admin-topbar-h);
 }
 
-/* Link sidebar */
+/* Link sidebar (voci di menu) */
 .admin-link {
   display: flex;
   align-items: center;
@@ -159,6 +162,7 @@
 
 /* ============================================================
    MAIN AREA
+   - Contenuto principale della pagina
 ============================================================ */
 
 .admin-main {
@@ -168,6 +172,7 @@
 
 /* ============================================================
    FOOTER ADMIN
+   - Note finali area admin
 ============================================================ */
 
 .admin-footer {
@@ -178,6 +183,7 @@
 
 /* ============================================================
    KPI DASHBOARD
+   - Griglia di indicatori sintetici (card KPI)
 ============================================================ */
 
 .admin .admin-kpi {
@@ -218,15 +224,16 @@
   width: 100%;         
 }
 
-/* Varianti KPI in base al valore (warning / danger / muted) */
+/* Varianti KPI in base al valore (warning / danger / muted)
+   - evidenziano criticità con bordo + animazione pulsante */
 .admin .kpi-card--warn {
-  border-color: rgba(234,179,8,.7);            /* giallo */
+  border-color: rgba(234,179,8,.7);           
   box-shadow: 0 10px 25px rgba(234,179,8,.18);
   animation: pulseAnnullato 1.5s infinite;
 }
 
 .admin .kpi-card--danger {
-  border-color: rgba(185,28,28,.7);            /* rosso */
+  border-color: rgba(185,28,28,.7);           
   box-shadow: 0 10px 25px rgba(185,28,28,.18);
   animation: pulseAnnullato 1.5s infinite;
 }
@@ -237,23 +244,22 @@
 
 /* ============================================================
    LAYOUT DASHBOARD TOGGLE (Dettagliato / Compatto)
-   - Card "Layout dashboard" + bottoni radio-like
+   - Card con bottoni tipo "radio" per cambiare layout
 ============================================================ */
 
 .admin .admin-layout-toggle {
-  /* giusto un po' di distacco dalla topbar */
   margin-top: 12px;
 }
 
 .admin .admin-layout-form {
   display: flex;
   flex-wrap: wrap;
-  gap: 20px;          /* <-- spazio tra i bottoni (più largo) */
+  gap: 20px;         
   margin-top: 12px;
 }
 
 .admin .admin-layout-form .btn {
-  padding: 9px 22px;  /* bottoni un filo più grandi */
+  padding: 9px 22px; 
   border-radius: 999px;
 }
 
@@ -267,8 +273,7 @@
 
 /* ============================================================
    LAYOUT KPI COMPATTO (admin_layout = 'compact')
-   - Quando l’admin sceglie "Compatto", la dashboard mostra
-     solo i KPI; qui stringiamo le card e togliamo le descrizioni
+   - Mostra solo valori numerici, senza descrizioni
 ============================================================ */
 
 .admin-kpi-compact .kpi-card {
@@ -282,6 +287,7 @@
 
 /* ============================================================
    GRID SEZIONI (Coda moderazione ecc.)
+   - Layout a due colonne per liste e code
 ============================================================ */
 
 .admin .admin-grid {
@@ -293,6 +299,7 @@
 
 /* ============================================================
    CARD + LIST SYSTEM
+   - Sistema di card riutilizzato in tutta l’area admin
 ============================================================ */
 
 .admin .card {
@@ -315,7 +322,7 @@
   margin: 6px 0 0;
 }
 
-/* Lista */
+/* Lista verticale */
 .admin .list {
   display: flex;
   flex-direction: column;
@@ -323,7 +330,7 @@
   margin-top: 12px;
 }
 
-/* Riga elenco (evento / recensione) */
+/* Riga elenco (evento / recensione / utente) */
 .admin .row {
   display: flex;
   justify-content: space-between;
@@ -386,6 +393,7 @@
 
 /* ============================================================
    BOTTONI ADMIN
+   - Variante di pulsante per azioni di gestione
 ============================================================ */
 
 .btn-admin {
@@ -401,7 +409,7 @@
   box-shadow: 0 10px 24px rgba(0,0,0,.25);
 }
 
-/* Badge contatore (es. Eventi in attesa) */
+/* Badge contatore (es. "Eventi in attesa") */
 .admin-badge {
   display: inline-flex;
   align-items: center;
@@ -410,7 +418,7 @@
   min-width: 24px;
   height: 24px;
 
-  font-size: 13px;      /* più grande */
+  font-size: 13px;      /* più grande per evidenziare il numero */
   font-weight: 800;
 
   padding: 0 8px;
@@ -422,8 +430,7 @@
   margin-left: 8px;     /* spazio dal titolo */
 }
 
-
-/* Bottone danger */
+/* Bottone "danger" per azioni sensibili (blocca, annulla, ecc.) */
 .admin .btn-danger {
   background: rgba(185,28,28,.10);
   border: 1px solid rgba(185,28,28,.25);
@@ -436,6 +443,7 @@
 
 /* ============================================================
    ALERT SYSTEM
+   - Messaggi di feedback (success / error)
 ============================================================ */
 
 .admin .alert {
@@ -456,6 +464,7 @@
 
 /* ============================================================
    ACCESSIBILITY (Focus states)
+   - Contorni evidenziati per tastiera e screen reader
 ============================================================ */
 
 .admin a:focus-visible,
@@ -467,478 +476,10 @@
   border-radius: 12px;
 }
 
-/* ============================================================
-   ADMIN THEME - EnjoyCity
-   ------------------------------------------------------------
-   - Scoped su .admin (non sporca il sito pubblico)
-   - Richiede style.css (variabili :root)
-   - Layout: Topbar + Sidebar + Main
-   - Design coerente con card system globale
-============================================================ */
-
-/* ============================================================
-   BASE ADMIN SCOPE
-============================================================ */
-
-.admin {
-  background: var(--bg);
-}
-
-/* ============================================================
-   TOPBAR (Header superiore)
-============================================================ */
-
-.admin-topbar {
-  position: sticky;
-  top: 0;
-  z-index: 80;
-
-  background: linear-gradient(180deg, #0b1220 0%, #0f172a 100%);
-  border-bottom: 1px solid rgba(255,255,255,.08);
-}
-
-.admin-topbar-inner {
-  max-width: 100%;
-  margin: 0;
-  padding: 12px 24px;
-
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-/* Badge utente topbar (stile pill, solo informativo) */
-.admin-user-pill{
-  pointer-events: none;
-  opacity: 0.95;
-  border-radius: 999px;
-  padding: 10px 14px;
-  font-weight: 700;
-}
-
-/* Brand */
-.admin-brand {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.admin-logo {
-  height: 44px;
-  width: auto;
-  filter: drop-shadow(0 10px 20px rgba(0,0,0,.25));
-}
-
-.admin-brand-text {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.1;
-}
-
-.admin-brand-text strong {
-  color: #fff;
-  font-size: 18px;
-  letter-spacing: .2px;
-}
-
-.admin-brand-text span {
-  color: rgba(255,255,255,.7);
-  font-size: 13px;
-}
-
-/* Azioni topbar (pulsanti "Vai al sito" + "Logout") */
-.admin-top-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-/* ============================================================
-   LAYOUT SHELL (Sidebar + Main)
-============================================================ */
-
-.admin-shell {
-  max-width: 1400px;
-  margin: 16px auto 0;
-  padding: 0 16px;
-
-  display: grid;
-  grid-template-columns: 240px 1fr;
-  gap: 16px;
-
-  align-items: start;
-}
-
-/* ============================================================
-   SIDEBAR
-============================================================ */
-
-/* Altezza topbar per sticky sidebar */
-:root {
-  --admin-topbar-h: 76px;
-}
-
-.admin-sidebar {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 18px;
-  box-shadow: var(--shadow);
-
-  padding: 12px;
-
-  position: sticky;
-  top: var(--admin-topbar-h);
-}
-
-/* Link sidebar */
-.admin-link {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-
-  padding: 10px 12px;
-  border-radius: 14px;
-
-  color: var(--text);
-  border: 1px solid transparent;
-  transition: all .2s ease;
-}
-
-.admin-link:hover {
-  background: #f8fafc;
-  border-color: var(--border);
-}
-
-/* Link attivo (pagina corrente) */
-.admin-link.is-active {
-  font-weight: 700;
-  border-left: 4px solid var(--green);
-  padding-left: 12px;
-  background: rgba(15,118,110,.08);
-  border-radius: 10px;
-}
-
-/* Separatore blocchi menu */
-.admin-sep {
-  height: 1px;
-  background: var(--border);
-  margin: 10px 0;
-}
-
-/* ============================================================
-   MAIN AREA
-============================================================ */
-
-.admin-main {
-  max-width: 100%;
-  padding: 0;
-}
-
-/* ============================================================
-   FOOTER ADMIN
-============================================================ */
-
-.admin-footer {
-  margin-top: 18px;
-  padding: 18px 0;
-  color: var(--muted);
-}
-
-/* ============================================================
-   KPI DASHBOARD
-============================================================ */
-
-.admin .admin-kpi {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 24px;
-
-  margin: 24px 0 30px;
-}
-
-.admin .kpi-card {
-  position: relative;
-  overflow: hidden;
-
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 18px;
-  box-shadow: var(--shadow);
-
-  padding: 14px;
-}
-
-.admin .kpi-card h2 {
-  margin: 0;
-  font-size: 12px;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: .35px;
-}
-
-.admin .kpi-num {
-  margin-top: 10px;
-  font-size: 34px;
-  font-weight: 900;
-  line-height: 1;
-
-  text-align: center;  
-  width: 100%;         
-}
-
-/* Varianti KPI in base al valore (warning / danger / muted) */
-.admin .kpi-card--warn {
-  border-color: rgba(234,179,8,.7);            /* giallo */
-  box-shadow: 0 10px 25px rgba(234,179,8,.18);
-  animation: pulseAnnullato 1.5s infinite;
-}
-
-.admin .kpi-card--danger {
-  border-color: rgba(185,28,28,.7);            /* rosso */
-  box-shadow: 0 10px 25px rgba(185,28,28,.18);
-  animation: pulseAnnullato 1.5s infinite;
-}
-
-.admin .kpi-card--muted {
-  opacity: .85;
-}
-
-/* ============================================================
-   LAYOUT DASHBOARD TOGGLE (Dettagliato / Compatto)
-   - Card "Layout dashboard" + bottoni radio-like
-============================================================ */
-
-.admin .admin-layout-toggle {
-  /* giusto un po' di distacco dalla topbar */
-  margin-top: 12px;
-}
-
-.admin .admin-layout-form {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 20px;          /* <-- spazio tra i bottoni (più largo) */
-  margin-top: 12px;
-}
-
-.admin .admin-layout-form .btn {
-  padding: 9px 22px;  /* bottoni un filo più grandi */
-  border-radius: 999px;
-}
-
-/* Bottone attivo (layout corrente) */
-.admin .admin-layout-form .btn.is-active {
-  background: var(--green);
-  color: #fff;
-  border-color: var(--green);
-  box-shadow: 0 6px 18px rgba(15,118,110,.25);
-}
-
-/* ============================================================
-   LAYOUT KPI COMPATTO (admin_layout = 'compact')
-   - Quando l’admin sceglie "Compatto", la dashboard mostra
-     solo i KPI; qui stringiamo le card e togliamo le descrizioni
-============================================================ */
-
-.admin-kpi-compact .kpi-card {
-  padding: 10px 12px;
-  font-size: 0.85rem;
-}
-
-.admin-kpi-compact .kpi-card p.muted {
-  display: none; /* nasconde le descrizioni sotto i numeri in modalità compatta */
-}
-
-/* ============================================================
-   GRID SEZIONI (Coda moderazione ecc.)
-============================================================ */
-
-.admin .admin-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 28px;
-  align-items: start;
-}
-
-/* ============================================================
-   CARD + LIST SYSTEM
-============================================================ */
-
-.admin .card {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 18px;
-  box-shadow: var(--shadow);
-  padding: 22px;
-  margin-bottom: 28px;  
-}
-
-.admin .card-head h2 {
-  margin: 0;
-  font-size: 18px;
-  margin-bottom: 18px;
-}
-
-.admin .muted {
-  color: var(--muted);
-  margin: 6px 0 0;
-}
-
-/* Lista */
-.admin .list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-top: 12px;
-}
-
-/* Riga elenco (evento / recensione) */
-.admin .row {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-
-  padding: 12px;
-  border-radius: 16px;
-
-  border: 1px solid var(--border);
-  background: #fff;
-}
-
-.admin .row-main {
-  min-width: 0;
-}
-
-.admin .row-title {
-  margin: 0;
-  font-size: 15px;
-}
-
-.admin .row-meta {
-  margin: 4px 0 0;
-  font-size: 13px;
-  color: var(--muted);
-}
-
-.admin .row-text {
-  margin: 8px 0 0;
-  font-size: 14px;
-  line-height: 1.35;
-}
-
-.admin .row-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-}
-
-.admin .inline {
-  display: inline;
-}
-
-/* Righe archiviate (storico) */
-.admin .row.is-archived {
-  background: #f9fafb;
-  border-style: dashed;
-  opacity: .9;
-}
-
-.admin .row.is-archived .row-title {
-  font-style: italic;
-}
-
-.admin .row.is-archived .row-meta {
-  font-size: 12px;
-}
-
-/* ============================================================
-   BOTTONI ADMIN
-============================================================ */
-
-.btn-admin {
-  background: linear-gradient(135deg, #0f766e 0%, #064e3b 100%);
-  color: #fff;
-  border: 1px solid rgba(255,255,255,.15);
-  box-shadow: 0 6px 18px rgba(0,0,0,.15);
-  transition: all .25s ease;
-}
-
-.btn-admin:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 10px 24px rgba(0,0,0,.25);
-}
-
-/* Badge contatore (es. Eventi in attesa) */
-.admin-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-
-  min-width: 24px;
-  height: 24px;
-
-  font-size: 13px;      /* più grande */
-  font-weight: 800;
-
-  padding: 0 8px;
-  border-radius: 999px;
-
-  background: var(--green);
-  color: #fff;
-
-  margin-left: 8px;     /* spazio dal titolo */
-}
-
-
-/* Bottone danger */
-.admin .btn-danger {
-  background: rgba(185,28,28,.10);
-  border: 1px solid rgba(185,28,28,.25);
-  color: #b91c1c;
-}
-
-.admin .btn-danger:hover {
-  background: rgba(185,28,28,.16);
-}
-
-/* ============================================================
-   ALERT SYSTEM
-============================================================ */
-
-.admin .alert {
-  padding: 12px 14px;
-  border-radius: 14px;
-  border: 1px solid var(--border);
-  background: var(--card);
-  margin: 14px 0;
-}
-
-.admin .alert-success {
-  border-color: rgba(4,120,87,.35);
-}
-
-.admin .alert-error {
-  border-color: rgba(185,28,28,.35);
-}
-
-/* ============================================================
-   ACCESSIBILITY (Focus states)
-============================================================ */
-
-.admin a:focus-visible,
-.admin button:focus-visible,
-.admin input:focus-visible,
-.admin select:focus-visible {
-  outline: 3px solid rgba(15,118,110,.35);
-  outline-offset: 2px;
-  border-radius: 12px;
-}
 /* ============================================================
    POPUP NOTIFICA MODERAZIONE ADMIN
-   - Overlay a schermo intero alla login in dashboard
-   - Mostra breve riepilogo di elementi in attesa
+   - Overlay alla login in dashboard per segnalare elementi
+     in attesa (eventi/recensioni)
 ============================================================ */
 
 .admin-popup-moderazione {
@@ -978,7 +519,7 @@
   gap: 8px;
 }
 
-/* Bottoni del popup: puoi anche riusare le tue .btn esistenti */
+/* Bottoni del popup (riusano stile .btn generale) */
 .admin-popup-inner .btn {
   display: inline-flex;
   align-items: center;
@@ -1015,6 +556,7 @@
 
 /* ============================================================
    RESPONSIVE
+   - Adattamento della dashboard su schermi medi/piccoli
 ============================================================ */
 
 @media (max-width: 1100px) {
@@ -1053,6 +595,7 @@
 
 /* ============================================================
    Checkbox Prenotazione obbligatoria (solo admin)
+   - Layout verticale per label + checkbox descrittiva
 ============================================================ */
 
 .admin .checkbox-row {
@@ -1075,103 +618,7 @@
 
 /* ============================================================
    Geolocalizzazione: lat/lon + bottone in riga (solo admin)
-============================================================ */
-
-.admin .geo-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  align-items: flex-start;
-}
-
-.admin .geo-col {
-  flex: 1 1 160px;
-  min-width: 150px;
-}
-
-.admin .geo-col input {
-  width: 100%;
-}
-
-.admin .geo-row .btn-search {
-  height: 44px;
-  padding: 0 16px;
-  white-space: nowrap;
-}
-
-.admin .geo-col small.hint {
-  display: block;
-  margin-top: 4px;
-  font-size: 0.85rem;
-}
-
-.admin .geo-row input:focus {
-  border-color: var(--green);
-  box-shadow: 0 0 0 3px rgba(15,118,110,0.15);
-}
-
-/* ============================================================
-   RESPONSIVE
-============================================================ */
-
-@media (max-width: 1100px) {
-  .admin .admin-kpi {
-    grid-template-columns: repeat(3, 1fr);
-  }
-}
-
-@media (max-width: 980px) {
-
-  .admin-shell {
-    grid-template-columns: 1fr;
-  }
-
-  .admin-sidebar {
-    position: relative;
-    top: 0;
-  }
-
-  .admin .admin-kpi {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
-  .admin .admin-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .admin .row {
-    flex-direction: column;
-  }
-
-  .admin .row-actions {
-    justify-content: flex-start;
-  }
-}
-
-/* ============================================================
-   Checkbox Prenotazione obbligatoria (solo admin)
-============================================================ */
-
-.admin .checkbox-row {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.admin .checkbox-control {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.admin .checkbox-control input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
-  margin: 0;
-}
-
-/* ============================================================
-   Geolocalizzazione: lat/lon + bottone in riga (solo admin)
+   - Campo per latitudine/longitudine + pulsante “Cerca”
 ============================================================ */
 
 .admin .geo-row {

@@ -1,32 +1,55 @@
 <?php
 // =========================================================
 // FILE: admin/admin_event_edit.php
-// Scopo didattico: form Admin per modifica evento
+// =========================================================
+// Scopo didattico:
+// - Form di modifica evento in Area Admin
+// - Gestione combinata di:
+//     • moderazione (stato: approvato / in_attesa / rifiutato)
+//     • stato logico dell’evento (attivo / annullato)
+//     • archiviazione (archiviato sì/no)
+// - Mantenimento delle regole business su:
+//     • eventi informativi (posti_totali = NULL)
+//     • prenotazione obbligatoria coerente con i posti
+// - Gestione sicura di upload/sostituzione immagine
+// - Validazioni server-side di tutti i campi principali
 // =========================================================
 
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
+// Config principale (connessione DB, helper vari, base_url, ecc.)
 require_once __DIR__ . '/../includes/config.php';
+
+// Avvio sessione se non già attiva (necessaria per autenticazione e flash messages)
 if (session_status() === PHP_SESSION_NONE) session_start();
 
 // =========================================================
 // 1) Guard: SOLO ADMIN
 // =========================================================
+// Controllo server-side dei permessi:
+// - Utente deve risultare loggato in sessione
+// - Il ruolo memorizzato deve essere 'admin'
+// In caso contrario: messaggio di errore + redirect al login.
+// Questo impedisce l’accesso diretto all’URL a utenti non autorizzati.
 if (!isset($_SESSION['logged']) || $_SESSION['logged'] !== true || ($_SESSION['ruolo'] ?? '') !== 'admin') {
     $_SESSION['flash_error'] = "Accesso non autorizzato.";
     header("Location: " . base_url('login.php'));
     exit;
 }
 
+// Titolo pagina per il layout admin
 $page_title = "Modifica evento - Area Admin";
 
+// Apertura connessione a PostgreSQL
 $conn = db_connect();
 
 // ---------------------------------------------------------
 // Utility: boolean postgres ('t'/'f') -> bool
 // ---------------------------------------------------------
+// PostgreSQL rappresenta spesso booleani come 't'/'f'.
+// Questa funzione uniforma il valore a un vero booleano PHP.
 function is_true_pg($v): bool
 {
     return ($v === 't' || $v === true || $v === '1' || $v === 1);
@@ -35,6 +58,8 @@ function is_true_pg($v): bool
 // ---------------------------------------------------------
 // Utility: escape output (se non esiste già e())
 // ---------------------------------------------------------
+// In alcuni contesti l'helper e() potrebbe non essere definito.
+// Qui viene definito localmente per sicurezza (XSS-safe).
 if (!function_exists('e')) {
     function e($s): string
     {
@@ -45,6 +70,8 @@ if (!function_exists('e')) {
 // ---------------------------------------------------------
 // 2) ID evento (GET)
 // ---------------------------------------------------------
+// Recupero e valido l'ID evento dalla query string.
+// Deve essere strettamente numerico (ctype_digit).
 $idRaw = $_GET['id'] ?? '';
 if (!ctype_digit((string)$idRaw)) {
     $_SESSION['flash_error'] = "ID evento non valido.";
@@ -57,6 +84,8 @@ $event_id = (int)$idRaw;
 // ---------------------------------------------------------
 // 3) Categorie per select
 // ---------------------------------------------------------
+// Precarico tutte le categorie dal DB per popolare la select.
+// Ordinamento alfabetico per una migliore UX.
 $categorie = [];
 $resCat = pg_query($conn, "SELECT id, nome FROM categorie ORDER BY nome;");
 if ($resCat) {
@@ -66,6 +95,8 @@ if ($resCat) {
 // ---------------------------------------------------------
 // 4) Carico evento
 // ---------------------------------------------------------
+// Recupero i dati dell'evento da modificare.
+// Se non esiste, mostro errore e torno alla lista eventi.
 $resEv = pg_query_params($conn, "SELECT * FROM eventi WHERE id = $1 LIMIT 1;", [$event_id]);
 $evento = $resEv ? pg_fetch_assoc($resEv) : null;
 
@@ -78,7 +109,9 @@ if (!$evento) {
 
 // ---------------------------------------------------------
 // 5) Valori "sticky" (precompilati)
-// - posti_totali NULL => informativo => campo vuoto nel form
+// - Precarico i campi con i valori attuali dell'evento
+// - Se il form fallisce la validazione, questi verranno sovrascritti con il POST
+// - posti_totali NULL => evento informativo => campo vuoto nel form
 // ---------------------------------------------------------
 $val = [
     'titolo'                    => (string)($evento['titolo'] ?? ''),
@@ -91,22 +124,25 @@ $val = [
     'longitudine'               => ($evento['longitudine'] === null ? '' : (string)$evento['longitudine']),
     'prezzo'                    => (string)($evento['prezzo'] ?? '0.00'),
 
-    // DB pulito: NULL => informativo => mostro vuoto
+    // DB "pulito": NULL => informativo => nel form mostro vuoto
     'posti_totali'              => ($evento['posti_totali'] === null ? '' : (string)$evento['posti_totali']),
 
     'prenotazione_obbligatoria' => is_true_pg($evento['prenotazione_obbligatoria'] ?? false) ? '1' : '0',
     'stato'                     => (string)($evento['stato'] ?? 'in_attesa'),
 
+    // Doppio livello di stato:
+    // - stato: moderazione (approvato, in_attesa, rifiutato)
+    // - stato_evento: attivo/annullato (per gestire annullamento eventi già approvati)
     'stato_evento'              => (string)($evento['stato_evento'] ?? 'attivo'),
     'archiviato'                => is_true_pg($evento['archiviato'] ?? false) ? '1' : '0',
 ];
 
-// timestamp -> datetime-local
+// Conversione timestamp DB → formato datetime-local HTML5
 $ts = (string)($evento['data_evento'] ?? '');
 $t = strtotime($ts);
 $val['data_evento'] = $t ? date('Y-m-d\TH:i', $t) : '';
 
-// immagine attuale
+// Percorso immagine attuale (se presente)
 $imgOld = (string)($evento['immagine'] ?? '');
 
 $errore = "";
@@ -114,31 +150,36 @@ $errore = "";
 // ---------------------------------------------------------
 // 6) POST update (validazioni + update DB)
 // ---------------------------------------------------------
+// Se il form è stato inviato, eseguo:
+// - aggiornamento sticky values con i nuovi dati
+// - validazione completa
+// - eventuale gestione upload immagine
+// - UPDATE su DB se tutto ok
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
-    // 6.1 aggiorno sticky values
+    // 6.1 aggiorno sticky values dai valori POST
     foreach ($val as $k => $_) {
         if (isset($_POST[$k])) $val[$k] = trim((string)$_POST[$k]);
     }
 
-    // checkbox: se non presente => 0
+    // checkbox: se non presenti nel POST => considerati '0'
     $val['prenotazione_obbligatoria'] = isset($_POST['prenotazione_obbligatoria']) ? '1' : '0';
     $val['archiviato'] = isset($_POST['archiviato']) ? '1' : '0';
 
-    // 6.2 estrazione
+    // 6.2 estrazione variabili principali
     $titolo = $val['titolo'];
     $breve  = $val['descrizione_breve'];
     $lunga  = $val['descrizione_lunga'];
     $luogo  = $val['luogo'];
     $catRaw = $val['categoria_id'];
 
-    $stato        = $val['stato'];         // moderazione
-    $stato_evento = $val['stato_evento'];  // stato evento
+    $stato        = $val['stato'];         // stato di moderazione
+    $stato_evento = $val['stato_evento'];  // stato evento (attivo/annullato)
 
-    // boolean PG per archiviato
+    // Booleano PostgreSQL per campo archiviato
     $archiviato_pg = ($val['archiviato'] === '1') ? 't' : 'f';
 
-    // 6.3 validazioni testi e select
+    // 6.3 validazioni testi e select obbligatorie
     if ($titolo === '' || $breve === '' || $lunga === '' || $val['data_evento'] === '' || $luogo === '' || $catRaw === '' || $stato === '') {
         $errore = "Compila tutti i campi obbligatori (inclusa categoria e stato).";
     } elseif (mb_strlen($titolo) > 100) {
@@ -155,7 +196,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errore = "Stato evento non valido.";
     }
 
-    // 6.4 categoria esiste
+    // 6.4 categoria esiste (integrità referenziale lato applicativo)
     $categoria_id = null;
     if ($errore === '') {
         $categoria_id = (int)$catRaw;
@@ -163,16 +204,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!$resCheck || pg_num_rows($resCheck) !== 1) $errore = "Categoria non valida.";
     }
 
-    // 6.5 data
+    // 6.5 data/ora evento (conversione e validità)
     $dataSql = null;
     if ($errore === '') {
-        $dataRaw = $val['data_evento'];
-        $dataSql = str_replace('T', ' ', $dataRaw) . ':00';
+        $dataRaw = $val['data_evento'];                 // formato HTML5: Y-m-d\TH:i
+        $dataSql = str_replace('T', ' ', $dataRaw) . ':00'; // → Y-m-d H:i:s
         $dt = DateTime::createFromFormat('Y-m-d H:i:s', $dataSql);
         if (!$dt) $errore = "Data/ora evento non valida.";
     }
 
-    // 6.6 prezzo (decimal)
+    // 6.6 prezzo (decimal, ≥ 0)
     $prezzo = '0.00';
     if ($errore === '') {
         $tmp = str_replace(',', '.', $val['prezzo']);
@@ -182,8 +223,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     // 6.7 posti_totali (DB pulito)
-    // - vuoto => NULL (informativo)
-    // - numero >= 0 => valido (0 lo trattiamo come informativo e lo convertiamo a NULL)
+    // ---------------------------------------------------------
+    // Logica business su posti_totali:
+    // - vuoto => NULL (evento informativo)
+    // - numero >= 0 => valido
+    //   • se 0 => lo convertiamo a NULL per mantenere la semantica "informativo"
+    // ---------------------------------------------------------
     $postiTotali = null; // NULL => informativo
     if ($errore === '') {
         $raw = trim((string)$val['posti_totali']);
@@ -200,14 +245,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    // 6.8 prenotazione_obbligatoria coerente
+    // 6.8 prenotazione_obbligatoria coerente con i posti
+    // - Se evento informativo (posti NULL) → prenotazione disattivata forzatamente.
     $pren_bool = ($val['prenotazione_obbligatoria'] === '1') ? 't' : 'f';
     if ($postiTotali === null) {
         $pren_bool = 'f';
         $val['prenotazione_obbligatoria'] = '0';
     }
 
-    // 6.9 lat/lon
+    // 6.9 lat/lon (geolocalizzazione)
+    // Campi opzionali, ma se uno è valorizzato devono esserlo entrambi.
+    // Inoltre devono rientrare in range geografici validi.
     $lat = $val['latitudine'] !== '' ? str_replace(',', '.', $val['latitudine']) : null;
     $lon = $val['longitudine'] !== '' ? str_replace(',', '.', $val['longitudine']) : null;
 
@@ -230,8 +278,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     // 6.10 immagine:
-    // - se non carico nulla => tengo vecchia
-    // - se carico => valido formato, dimensione, sposto in uploads/eventi
+    // - Se non carico nulla → mantengo l'immagine esistente
+    // - Se carico una nuova immagine:
+    //     • controllo errori, dimensione (max 2MB) e MIME reale
+    //     • salvo in uploads/eventi con nome univoco
+    //     • elimino l'eventuale vecchia immagine dal filesystem
     $imgPath = $imgOld;
 
     if ($errore === '' && isset($_FILES['immagine']) && $_FILES['immagine']['error'] !== UPLOAD_ERR_NO_FILE) {
@@ -244,6 +295,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($size > 2 * 1024 * 1024) {
                 $errore = "Immagine troppo grande (max 2MB).";
             } else {
+                // Verifica MIME affidandosi a finfo (non solo estensione).
                 $finfo = new finfo(FILEINFO_MIME_TYPE);
                 $mime  = $finfo->file($tmpFile);
 
@@ -260,6 +312,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $dir = __DIR__ . '/../uploads/eventi';
                     if (!is_dir($dir)) mkdir($dir, 0755, true);
 
+                    // Nome file univoco basato su timestamp + random
                     $filename = 'ev_' . time() . '_' . bin2hex(random_bytes(6)) . '.' . $ext;
                     $dest = $dir . '/' . $filename;
 
@@ -268,7 +321,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     } else {
                         $imgPath = 'uploads/eventi/' . $filename;
 
-                        // Cancello l'immagine vecchia (solo se era in uploads/eventi/)
+                        // Cancello l'immagine precedente (se era nel percorso previsto)
                         $oldRel = (string)$imgOld;
                         if ($oldRel !== '' && strpos($oldRel, 'uploads/eventi/') === 0) {
                             $oldAbs = __DIR__ . '/../' . $oldRel;
@@ -280,7 +333,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    // 6.11 UPDATE DB
+    // 6.11 UPDATE DB (eseguito solo se non ci sono errori)
     if ($errore === '') {
         $sql = "
             UPDATE eventi
@@ -321,6 +374,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $event_id
         ];
 
+        // Uso di query parametrizzate per prevenire SQL injection
         $resUp = pg_query_params($conn, $sql, $params);
 
         if (!$resUp) {
@@ -334,9 +388,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// chiusura connessione (render pagina)
+// chiusura connessione per la parte di render pagina HTML
 db_close($conn);
 
+// Header comune area admin (layout, menu, breadcrumb, ecc.)
 require_once __DIR__ . '/../includes/admin_header.php';
 ?>
 
@@ -349,10 +404,12 @@ require_once __DIR__ . '/../includes/admin_header.php';
     </header>
 
     <?php if ($errore !== ""): ?>
+        <!-- Messaggio di errore globale visualizzato sopra il form -->
         <div class="alert alert-error" role="alert"><?= e($errore) ?></div>
     <?php endif; ?>
 
     <?php if ($imgOld !== ''): ?>
+        <!-- Preview immagine attuale dell'evento (se esiste) -->
         <figure style="margin:12px 0 0 0;">
             <img src="<?= e(base_url($imgOld)) ?>" alt="Immagine evento"
                 style="max-width:100%; border-radius:14px;"
@@ -363,7 +420,13 @@ require_once __DIR__ . '/../includes/admin_header.php';
         </figure>
     <?php endif; ?>
 
-    <!-- NB: id = formProponiEvento per riusare assets/js/proponi_evento.js -->
+    <!--
+        NB: id = formProponiEvento
+        Si riusa lo stesso JavaScript (assets/js/proponi_evento.js)
+        già utilizzato per il form di creazione evento.
+        In questo modo la UX (hint, controlli lato client, geolocalizzazione)
+        rimane coerente tra add e edit.
+    -->
     <form id="formProponiEvento" class="auth-form"
         action="<?= e(base_url('admin/admin_event_edit.php?id=' . $event_id)) ?>"
         method="POST" enctype="multipart/form-data" novalidate>
@@ -455,7 +518,7 @@ require_once __DIR__ . '/../includes/admin_header.php';
             <small class="hint" id="postiHint">Lascia vuoto per evento informativo.</small>
         </div>
 
-        <!-- Prenotazione obbligatoria: stessa UX dell'add -->
+        <!-- Prenotazione obbligatoria: coerente con la logica dell'add -->
         <div class="field checkbox-row">
             <label for="prenotazione_obbligatoria">Prenotazione obbligatoria</label>
 
@@ -469,7 +532,7 @@ require_once __DIR__ . '/../includes/admin_header.php';
             <small class="hint">Se evento informativo, la prenotazione è disattivata.</small>
         </div>
 
-        <!-- Geolocalizzazione: stessa struttura dell'add -->
+        <!-- Geolocalizzazione: stessa UI del form di creazione -->
         <div class="field">
             <label>Geolocalizzazione (opzionale)</label>
 
@@ -488,6 +551,7 @@ require_once __DIR__ . '/../includes/admin_header.php';
                     <small class="hint" id="geoHint"></small>
                 </div>
 
+                <!-- Pulsante che usa la Geolocation API lato JS per precompilare i campi -->
                 <button type="button" class="btn-search" id="btn-geo-evento">
                     Usa la mia posizione
                 </button>
@@ -507,7 +571,12 @@ require_once __DIR__ . '/../includes/admin_header.php';
     </form>
 </section>
 
-<!-- JS: stesso script per geo + validazioni -->
+<!--
+    JS condiviso:
+    - valida alcuni campi lato client (hint, controlli base)
+    - gestisce la geolocalizzazione tramite HTML5 Geolocation API
+    - migliora l'UX ma non sostituisce le validazioni server-side
+-->
 <script defer src="<?= e(base_url('assets/js/proponi_evento.js')) ?>"></script>
 
 <?php require_once __DIR__ . '/../includes/admin_footer.php'; ?>

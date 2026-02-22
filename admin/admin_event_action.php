@@ -2,39 +2,65 @@
 // =========================================================
 // FILE: admin/admin_event_action.php
 //
-// Utilizzato per le AZIONI RAPIDE sugli eventi eseguite da area admin.
+// AREA ADMIN - Azioni rapide sugli eventi
+// Questo script gestisce tutte le operazioni rapide che l’amministratore può effettuare sugli eventi.
+//
+// È un endpoint server-side:
+// - non produce HTML
+// - riceve dati via POST
+// - applica regole di coerenza
+// - aggiorna il database
+// - imposta messaggi flash
+// - reindirizza (pattern PRG)
+//
 // Regole implementate:
-// - Approva/Rifiuta      solo su eventi in_attesa (moderazione reale).
-// - Archivia/Ripristina  solo su eventi approvati (eventi pubblicati).
-// - Annulla/Riattiva     solo su eventi approvati.
-// - Riattiva             solo se l’evento è futuro (un evento passato è “concluso”).
+// - Approva/Rifiuta      → solo su eventi in_attesa
+// - Archivia/Ripristina  → solo su eventi approvati
+// - Annulla/Riattiva     → solo su eventi approvati
+// - Riattiva             → solo se evento futuro
 // =========================================================
 
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
+// Inclusione configurazione generale:
+// - connessione PostgreSQL
+// - funzione base_url()
+// - gestione sessioni
 require_once __DIR__ . '/../includes/config.php';
+
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
 // ---------------------------------------------------------
-// Helper: redirect verso la pagina admin
-// di provenienza (HTTP_REFERER), con fallback alla dashboard.
+// Helper: redirect_back_admin()
+// ---------------------------------------------------------
+// Reindirizza l’admin alla pagina di provenienza
+// (HTTP_REFERER), ma solo se è una pagina admin.
+// In caso contrario → fallback alla dashboard.
 // ---------------------------------------------------------
 function redirect_back_admin(string $fallbackRel = 'admin/admin_dashboard.php'): void
 {
     $back = $_SERVER['HTTP_REFERER'] ?? '';
+
+    // Sicurezza: evito redirect verso pagine non admin
     if ($back === '' || strpos($back, 'admin/') === false) {
         $back = base_url($fallbackRel);
     }
+
     header("Location: " . $back);
     exit;
 }
 
 // =========================================================
-// 1) Guard: SOLO ADMIN
+// 1) AUTHORIZATION GUARD (SOLO ADMIN)
+// Verifico che:
+// - l’utente sia autenticato
+// - il ruolo sia 'admin'
+//
+// Protegge l’endpoint da accessi diretti non autorizzati.
 // =========================================================
 if (
     !isset($_SESSION['logged']) ||
@@ -47,7 +73,9 @@ if (
 }
 
 // =========================================================
-// 2) Guard: SOLO POST (niente azioni via URL)
+// 2) METHOD GUARD (SOLO POST)
+// Le azioni amministrative NON devono essere richiamabili
+// tramite GET (URL manipolabile).
 // =========================================================
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     header("Location: " . base_url("admin/admin_dashboard.php"));
@@ -55,20 +83,24 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 // =========================================================
-// 3) Parametri +  azioni
+// 3) LETTURA PARAMETRI + VALIDAZIONE
+// - id evento → deve essere intero positivo
+// - azione    → deve appartenere a una whitelist
 // =========================================================
 $id     = $_POST['id']     ?? '';
 $azione = (string)($_POST['azione'] ?? '');
 
+// Whitelist delle azioni consentite
 $azioni_valide = [
-    'approva',     // moderazione:   stato -> approvato
-    'rifiuta',     // moderazione:   stato -> rifiutato
-    'archivia',    // lifecycle:     archiviato -> TRUE
-    'ripristina',  // lifecycle:     archiviato -> FALSE
-    'annulla',     // lifecycle:     stato_evento -> annullato
-    'riattiva'     // lifecycle:     stato_evento -> attivo
+    'approva',
+    'rifiuta',
+    'archivia',
+    'ripristina',
+    'annulla',
+    'riattiva'
 ];
 
+// Validazione input (difesa contro richieste manipolate)
 if (!ctype_digit((string)$id) || !in_array($azione, $azioni_valide, true)) {
     $_SESSION['flash_error'] = "Parametri non validi per l’azione sugli eventi.";
     header("Location: " . base_url("admin/admin_dashboard.php"));
@@ -78,7 +110,9 @@ if (!ctype_digit((string)$id) || !in_array($azione, $azioni_valide, true)) {
 $event_id = (int)$id;
 
 // =========================================================
-// 4) Connessione + lettura stato attuale evento
+// 4) CONNESSIONE DB + LETTURA STATO ATTUALE EVENTO
+// Recupero tutte le informazioni necessarie per applicare
+// le regole di coerenza.
 // =========================================================
 $conn = db_connect();
 
@@ -93,13 +127,17 @@ $resCur = pg_query_params(
 
 $cur = $resCur ? pg_fetch_assoc($resCur) : null;
 
+// Se l’evento non esiste → errore
 if (!$cur) {
     db_close($conn);
     $_SESSION['flash_error'] = "Evento non trovato (ID: $event_id).";
     redirect_back_admin();
 }
 
-// Normalizzo i valori letti dal DB (PostgreSQL boolean 't'/'f')
+// ---------------------------------------------------------
+// Normalizzazione valori dal DB
+// PostgreSQL restituisce boolean come 't'/'f'
+// ---------------------------------------------------------
 $stato        = (string)($cur['stato'] ?? '');
 $archiviato   = (
     ($cur['archiviato'] ?? 'f') === 't' ||
@@ -109,45 +147,50 @@ $archiviato   = (
 $stato_evento = (string)($cur['stato_evento'] ?? 'attivo');
 $data_evento  = (string)($cur['data_evento'] ?? '');
 
-// Utile per le regole temporali (es: riattiva solo su futuri)
+// ---------------------------------------------------------
+// Controllo temporale:
+// utile per stabilire se l’evento è futuro o passato
+// ---------------------------------------------------------
 $evento_ts = strtotime($data_evento);
 $now_ts    = time();
 $is_future = ($evento_ts !== false && $evento_ts >= $now_ts);
 
 // =========================================================
-// 5) Regole di coerenza
+// 5) BUSINESS RULES (REGOLE DI COERENZA)
+// Ogni azione è subordinata allo stato corrente.
+// Questo evita transizioni incoerenti.
 // =========================================================
 $errore = "";
 
-// Moderazione: approva/rifiuta SOLO se in_attesa
+// Moderazione → solo se in_attesa
 if (in_array($azione, ['approva', 'rifiuta'], true)) {
     if ($stato !== 'in_attesa') {
         $errore = "Azione non consentita: puoi approvare o rifiutare solo eventi in attesa.";
     }
 }
 
-// Lifecycle: archivia/ripristina SOLO se approvato
+// Archivia/Ripristina → solo se approvato
 if ($errore === "" && in_array($azione, ['archivia', 'ripristina'], true)) {
     if ($stato !== 'approvato') {
         $errore = "Azione non consentita: puoi archiviare o ripristinare solo eventi approvati.";
     }
 }
 
-// Lifecycle: annulla/riattiva SOLO se approvato
+// Annulla/Riattiva → solo se approvato
 if ($errore === "" && in_array($azione, ['annulla', 'riattiva'], true)) {
     if ($stato !== 'approvato') {
         $errore = "Azione non consentita: puoi annullare o riattivare solo eventi approvati.";
     }
 }
 
-// Riattiva: ha senso solo se evento futuro (se passato è “concluso”)
+// Riattiva → solo evento futuro
 if ($errore === "" && $azione === 'riattiva') {
     if (!$is_future) {
         $errore = "Non puoi riattivare un evento già passato: risulta concluso.";
     }
 }
 
-// Se ho errore, interrompo qui (PRG + messaggio)
+// Se ho un errore → interrompo (PRG)
 if ($errore !== "") {
     db_close($conn);
     $_SESSION['flash_error'] = $errore;
@@ -155,7 +198,8 @@ if ($errore !== "") {
 }
 
 // =========================================================
-// 6) Costruzione UPDATE 
+// 6) COSTRUZIONE QUERY UPDATE
+// In base all’azione costruisco la query corretta.
 // =========================================================
 $sql    = "";
 $params = [$event_id];
@@ -163,11 +207,9 @@ $params = [$event_id];
 switch ($azione) {
 
     // -------------------------
-    // Moderazione
+    // Moderazione contenuto
     // -------------------------
     case 'approva':
-        // NB: non forziamo stato_evento qui:
-        //     la “pubblicazione” dipende anche da data_evento, archiviato, stato_evento.
         $sql = "UPDATE eventi SET stato = 'approvato' WHERE id = $1;";
         break;
 
@@ -176,35 +218,37 @@ switch ($azione) {
         break;
 
     // -------------------------
-    // Lifecycle (visibilità e stato operativo)
+    // Stato evento
     // -------------------------
     case 'archivia':
-        // Archivia = rimuovo dalle liste pubbliche, ma NON elimino dal DB.
+        // Rimuove dalle liste pubbliche senza cancellare
         $sql = "UPDATE eventi SET archiviato = TRUE WHERE id = $1;";
         break;
 
     case 'ripristina':
-        // Ripristina = torna gestibile come evento “normale” (se i filtri lo includono).
         $sql = "UPDATE eventi SET archiviato = FALSE WHERE id = $1;";
         break;
 
     case 'annulla':
-        // Annulla = evento non più valido/erogato (non prenotabile, non attivo).
+        // Evento non più attivo/erogabile
         $sql = "UPDATE eventi SET stato_evento = 'annullato' WHERE id = $1;";
         break;
 
     case 'riattiva':
-        // Riattiva = stato operativo “attivo” (solo per eventi futuri, vedi regola sopra).
+        // Evento torna operativo (solo se futuro)
         $sql = "UPDATE eventi SET stato_evento = 'attivo' WHERE id = $1;";
         break;
 }
 
 // =========================================================
-// 7) Esecuzione DB + messaggi flash
+// 7) ESECUZIONE QUERY + FLASH MESSAGE
+// Uso di pg_query_params → prevenzione SQL Injection.
 // =========================================================
 $resUp = pg_query_params($conn, $sql, $params);
 
 if ($resUp) {
+
+    // Mappatura etichette leggibili
     $mapLabel = [
         'approva'     => 'approvato',
         'rifiuta'     => 'rifiutato',
@@ -213,6 +257,7 @@ if ($resUp) {
         'annulla'     => 'annullato',
         'riattiva'    => 'riattivato',
     ];
+
     $label = $mapLabel[$azione] ?? 'aggiornato';
     $_SESSION['flash_ok'] = "Evento #$event_id $label correttamente.";
 } else {
@@ -222,6 +267,8 @@ if ($resUp) {
 db_close($conn);
 
 // =========================================================
-// 8) Redirect PRG verso la pagina di provenienza
+// 8) REDIRECT (Pattern PRG)
+// Post → Redirect → Get
+// Evita doppio invio del form e mantiene pulita la UX.
 // =========================================================
 redirect_back_admin();

@@ -1,15 +1,5 @@
 /* =========================================================
    EnjoyCity - assets/css/style.css
-   ---------------------------------------------------------
-   OBIETTIVO:
-   - CSS ordinato a sezioni + commenti (per spiegazione alla prof)
-   - Stile IDENTICO al tuo (non lo stravolgo)
-   - Fix:
-     1) Accedi/Registrati colori diversi (classi .login / .register)
-     2) Dropdown che si accavallano (rimosso "ponte" invasivo)
-     3) .btn.primary usa variabili valide (--brand alias di --green)
-   ========================================================= */
-
 
 /* =========================================================
    0) VARIABILI TEMA
@@ -20,13 +10,12 @@
     --text: #111827;
     --muted:#6b7280;
   
-    --green:#0f766e;      /* verde elegante */
-    --green2:#047857;     /* hover */
+    --green:#0f766e;      
+    --green2:#047857;     
   
     --border:#e5e7eb;
     --shadow: 0 10px 25px rgba(0,0,0,0.07);
   
-    /* Alias compatibilità: nel tuo CSS usavi --brand/--brand2 */
     --brand:  var(--green);
     --brand2: var(--green2);
   }
@@ -81,7 +70,6 @@
     transform: translateY(-1px);
   }
   
-  /* Primario (verde) */
   .btn.primary{
     background: var(--brand);
     border-color: var(--brand);
@@ -92,7 +80,6 @@
     border-color: var(--brand2);
   }
   
-  /* Utility */
   .w-100 { width: 100%; }
   .mt-8{ margin-top: 8px; }
   
@@ -134,7 +121,7 @@
     border-bottom: 1px solid var(--border);
     position: sticky;
     top: 0;
-    z-index: 1500; /* sopra al contenuto della pagina */
+    z-index: 1500; 
   }
   
   .topbar-inner{
@@ -174,8 +161,7 @@
     flex-wrap: nowrap;
   }
   
-  /* ---- Navbar: bottoni compatti/flat SOLO per i link in nav
-     (FIX IMPORTANTISSIMO: non "appiattisce" i bottoni speciali altrove) */
+  /* ---- Navbar: bottoni compatti/flat  */
   .nav > a.btn,
   .nav .dropdown-btn{
     padding: 10px 12px;
@@ -184,7 +170,7 @@
     border-color: transparent;
     color: var(--green);
     font-weight: 700;
-    transform: none; /* niente sollevamento in navbar */
+    transform: none; 
   }
   
   .nav > a.btn:hover,
@@ -196,10 +182,6 @@
   
   /* =========================================================
      5) USER DROPDOWN (icona account)
-     ---------------------------------------------------------
-     FIX:
-     - colori Accedi/Registrati funzionano solo con classi:
-       a.login / a.register (le mettiamo nel PHP)
      ========================================================= */
   .user{
     position:relative;
@@ -234,7 +216,7 @@
     box-shadow: var(--shadow);
     padding: 10px;
     display:none;
-    z-index: 2000; /* sopra al resto */
+    z-index: 2000; 
   }
   
   /* apertura hover/focus */
@@ -273,10 +255,6 @@
   
   /* =========================================================
      6) DROPDOWN "IL PROGETTO"
-     ---------------------------------------------------------
-     FIX accavallamento:
-     - rimuovo il "ponte" ::after largo 220px che si sovrapponeva
-       al menu user (causando doppio menu aperto)
      ========================================================= */
   .dropdown{
     position: relative;
@@ -336,7 +314,7 @@
   .banner-track{
     display:flex;
     width:100%;
-    animation: bannerSlide 90s linear infinite; /* più lento */
+    animation: bannerSlide 90s linear infinite; 
   }
   
   .banner:hover .banner-track{
@@ -398,7 +376,7 @@
   
   @keyframes bannerSlide{
     0%   { transform: translateX(0); }
-    100% { transform: translateX(-1000%); } /* 10 slide */
+    100% { transform: translateX(-1000%); }
   }
   
   
@@ -561,7 +539,6 @@
   align-items: start;
 }
 
-/* Se vuoi 2 colonne SOLO su schermi enormi (opzionale) */
 @media (min-width: 1400px){
   .area-grid.two-cols-xl {
     grid-template-columns: 1.3fr 1fr !important;
@@ -616,10 +593,6 @@
   
   /* =========================================================
    11) GRID + CARD (BASE)
-   ---------------------------------------------------------
-   Queste sono le regole BASE riusabili.
-   NON mettiamo qui regole specifiche di eventi.php,
-   altrimenti rompiamo index (evidenza) e altre pagine.
    ========================================================= */
 
 /* Griglia base (usata in varie pagine) */
@@ -697,9 +670,6 @@
 
 /* =========================================================
    12) EVIDENZA ROW (INDEX)
-   ---------------------------------------------------------
-   Qui la card è più "compatta" e in orizzontale.
-   Queste regole restano come le hai.
    ========================================================= */
 
 .evidenza-row{
@@ -722,17 +692,12 @@
 
 
 /* =========================================================
-   24) EVENTI.PHP (SCOPED) - NON tocca INDEX
-   ---------------------------------------------------------
-   Tutto ciò che riguarda la pagina eventi viene "scopato"
-   dentro .eventi-page per evitare collisioni con index.
+   24) EVENTI.PHP
    ========================================================= */
-
-/* Layout lista (full width) - usato in eventi.php */
 .eventi-page .events-list{
   display:flex;
   flex-direction:column;
-  gap: 32px;                 /* più spazio tra eventi */
+  gap: 32px;                 
 }
 
 /* Card evento: full width (mantiene base .card) */
@@ -740,25 +705,23 @@
   width: 100%;
 }
 
-/* Immagine evento: più grande MA non enorme */
+/* Immagine evento */
 .eventi-page .event-card .card-img{
-  height: 210px;             /* “pizzico più grande” */
+  height: 210px;             
   background: #f3f4f6;
 }
 
-/* Anti-sgranatura: niente zoom + immagine intera */
+/* Anti-sgranatura */
 .eventi-page .event-card .card-img img{
   object-fit: contain;       /* mostra tutta l’immagine */
   transform: none !important;
   transition: none !important;
 }
 
-/* Disattiva lo zoom hover SOLO nella pagina eventi */
 .eventi-page .event-card:hover .card-img img{
   transform: none !important;
 }
 
-/* Testi più piccoli SOLO in eventi.php */
 .eventi-page .event-card .card-body{
   padding: 18px 22px;
   gap: 6px;
@@ -776,7 +739,7 @@
 }
 
   /* =========================================================
-     13) PILL / TAG (interni)
+     13) PILL / TAG
      ========================================================= */
   .pill{
     padding: 6px 10px;
@@ -888,7 +851,7 @@
   
   
   /* =========================================================
-     14) TAG OVERLAY (sull'immagine)
+     14) TAG OVERLAY 
      ========================================================= */
   .img-tags{
     position:absolute;
@@ -1043,7 +1006,7 @@
     min-height: 18px;
     font-size: 13px;
     margin-top: 6px;
-    color: #6b7280; /* default */
+    color: #6b7280; 
   }
   .hint.is-error{
     color: #b91c1c;
@@ -1074,7 +1037,7 @@
     color:#065f46;
   }
   
-  /* bottoni auth (mantengo tuo stile) */
+  /* bottoni auth  */
   .btn-primary{
     background: #2E7D32;
     color: #fff;
@@ -1140,7 +1103,7 @@
   gap: 6px;                  
 }
   /* =========================================================
-     17) DASHBOARD / PANNELLI (riuso design card)
+     17) DASHBOARD / PANNELLI 
      ========================================================= */
   .dashboard{
     margin: 28px auto 60px;
@@ -1185,11 +1148,8 @@
     font-weight:900;
   }
   
-  /* =========================================================
-     18) CARD / GRID DASHBOARD (12-col)
-     ========================================================= */
 /* =========================================================
-   18) CARD / GRID DASHBOARD (12-col)  [SCOPED]
+   18) CARD / GRID DASHBOARD 
    ========================================================= */
    .dashboard .grid{ display:grid; gap: 12px; }
 
@@ -1282,7 +1242,6 @@
     outline-offset: 2px;
   }
   
-  /* bottoni varianti dashboard */
   .btn.small{
     padding: 8px 10px;
     border-radius: 10px;
@@ -1351,7 +1310,7 @@
   
   
   /* =========================================================
-     19) EVENTO (DETTAGLIO) + BREADCRUMB
+     19) EVENTO (DETTAGLIO)
      ========================================================= */
   .breadcrumb{
     margin: 10px 0 14px;
@@ -1387,7 +1346,7 @@
   
   
   /* =========================================================
-     20) EVENTI (LISTA)
+     20) EVENTI
      ========================================================= */
   .eventi-head{ margin-top: 8px; }
   
@@ -1400,39 +1359,33 @@
     font-weight: 900;
   }
   .eventi-head .btn:hover{ background: rgba(15,118,110,0.10); }
-  
-  
-  /* =========================================================
-   EVENTI - anti-sgranatura (immagine più piccola, no zoom)
-   ========================================================= */
 
 .event-card .card-img{
-  height: 190px;          /* più piccola -> meno sgranata */
+  height: 190px;        
   background: #f3f4f6;
 }
 
-/* mostra tutta l’immagine, no tagli */
+
 .event-card .card-img img{
   width: 100%;
   height: 100%;
-  object-fit: contain;     /* zero tagli, zero zoom */
+  object-fit: contain;    
   object-position: center;
   transform: none !important;
   transition: none !important;
 }
 
-/* blocca lo zoom hover che hai nella sezione 11 */
+
 .card:hover .card-img img{
   transform: none !important;
 }
-/* EVENTI – regolazione dimensioni eleganti */
+
 
 .event-card .card-img{
-  height: 210px;   /* prima 190 → ora leggermente più grande */
+  height: 210px;  
   background: #f3f4f6;
 }
 
-/* manteniamo zero zoom e zero tagli */
 .event-card .card-img img{
   width: 100%;
   height: 100%;
@@ -1571,7 +1524,6 @@
     background: rgba(15,118,110,0.04);
   }
   
-  
   /* =========================================================
      22) PAGINE STATICHE "IL PROGETTO"
      ========================================================= */
@@ -1662,7 +1614,6 @@
   }
   .accordion-panel p{ margin:10px 0 6px; }
   
-  /* Accessibilità: contenuti solo per screen reader */
   .sr-only{
     position:absolute; width:1px; height:1px; padding:0; margin:-1px;
     overflow:hidden; clip:rect(0,0,0,0);
@@ -1671,7 +1622,7 @@
   
   
   /* =========================================================
-     23) NAV - ADMIN BUTTON PREMIUM (solo quando admin loggato)
+     23) NAV - ADMIN BUTTON PREMIUM
      ========================================================= */
   .nav .btn-admin{
     background: linear-gradient(135deg, #0f766e 0%, #064e3b 100%);
@@ -1705,7 +1656,7 @@
     background: rgba(255,255,255,.25);
     letter-spacing:.6px;
   }
-  /* Icona scudo (solo estetica) */
+  /* Icona scudo */
 .nav .admin-icon{
   display:inline-flex;
   align-items:center;
@@ -1713,7 +1664,7 @@
   font-size: 16px;
   line-height: 1;
 }
-/* Dashboard: coda moderazione in colonna (una sotto l’altra) */
+/* Dashboard */
 .admin-stack{
   display: flex;
   flex-direction: column;

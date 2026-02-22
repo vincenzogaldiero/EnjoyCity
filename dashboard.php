@@ -21,6 +21,10 @@ if (session_status() === PHP_SESSION_NONE) session_start();
 
 // =========================================================
 // GUARD: solo utenti loggati "user"
+// ---------------------------------------------------------
+// - Se non loggato → redirect a login
+// - Se ruolo = admin → redirect alla dashboard admin
+//   (separazione netta delle aree in base al ruolo)
 // =========================================================
 if (!isset($_SESSION['logged']) || $_SESSION['logged'] !== true) {
     header("Location: " . base_url('login.php'));
@@ -36,6 +40,9 @@ $nomeUtente = (string)($_SESSION['nome_utente'] ?? 'Utente');
 
 // =========================================================
 // Flash messages (PRG)
+// ---------------------------------------------------------
+// Vengono impostate nelle azioni POST e mostrate una sola volta
+// all'apertura della pagina (pattern Post/Redirect/Get).
 // =========================================================
 $flash_ok  = $_SESSION['flash_ok']  ?? '';
 $flash_err = $_SESSION['flash_error'] ?? '';
@@ -48,6 +55,11 @@ $conn = db_connect();
 
 // =========================================================
 // POST ACTIONS (PRG)
+// ---------------------------------------------------------
+// Gestione azioni lato server:
+// 1) Annulla prenotazione
+// 2) Invia recensione
+// Ogni azione termina con redirect per evitare doppio invio form.
 // =========================================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = (string)($_POST['action'] ?? '');
@@ -56,6 +68,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'annulla_prenotazione') {
 
         $id = (string)($_POST['id_prenotazione'] ?? '');
+        // Validazione ID prenotazione
         if (!ctype_digit($id)) {
             $_SESSION['flash_error'] = "Prenotazione non valida.";
             db_close($conn);
@@ -65,8 +78,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $pren_id = (int)$id;
 
+        // Uso transazione per garantire coerenza fra DELETE e UPDATE
         pg_query($conn, "BEGIN");
 
+        // Controllo ownership + stato evento:
+        // - la prenotazione deve appartenere all'utente
+        // - evento approvato, non archiviato, attivo e futuro
         $sqlGet = "
             SELECT p.evento_id
             FROM prenotazioni p
@@ -83,6 +100,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $rowGet = $resGet ? pg_fetch_assoc($resGet) : null;
 
         if (!$rowGet) {
+            // Prenotazione inesistente / non più annullabile
             pg_query($conn, "ROLLBACK");
             $_SESSION['flash_error'] = "Non puoi annullare: prenotazione non trovata o evento non più attivo.";
             db_close($conn);
@@ -92,6 +110,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $evento_id = (int)$rowGet['evento_id'];
 
+        // DELETE prenotazione (solo se appartiene all'utente loggato)
         $sqlDel = "DELETE FROM prenotazioni WHERE id = $1 AND utente_id = $2;";
         $resDel = pg_query_params($conn, $sqlDel, [$pren_id, $user_id]);
 
@@ -103,6 +122,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         }
 
+        // Ricalcolo posti_prenotati sull'evento (coerenza globale)
         $sqlUpd = "
             UPDATE eventi
             SET posti_prenotati = (
@@ -122,6 +142,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         }
 
+        // Tutto ok → COMMIT transazione
         pg_query($conn, "COMMIT");
 
         $_SESSION['flash_ok'] = "Prenotazione annullata con successo.";
@@ -137,6 +158,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $err = '';
 
+        // Validazione voto 1–5
         if (!ctype_digit($voto)) {
             $err = "Seleziona un voto valido.";
         } else {
@@ -144,16 +166,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($v < 1 || $v > 5) $err = "Il voto deve essere tra 1 e 5.";
         }
 
+        // Validazione lunghezza testo
         if ($err === '' && mb_strlen($testo) < 10) $err = "Scrivi almeno 10 caratteri.";
         if ($err === '' && mb_strlen($testo) > 250) $err = "Massimo 250 caratteri.";
 
         if ($err !== '') {
+            // In caso di errore, salvo flash e torno alla sezione recensioni
             $_SESSION['flash_error'] = $err;
             db_close($conn);
             header("Location: " . base_url("dashboard.php#recensioni"));
             exit;
         }
 
+        // Insert recensione in stato "in_attesa" (moderazione admin)
         $sqlIns = "
             INSERT INTO recensioni (utente_id, testo, voto, stato, data_recensione)
             VALUES ($1, $2, $3, 'in_attesa', NOW());
@@ -176,7 +201,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // =========================================================
 // NOTIFICHE: eventi annullati prenotati dall'utente
-// - Mostrati una sola volta grazie a notificato_annullamento
+// ---------------------------------------------------------
+// - Recupero tutte le prenotazioni legate a eventi annullati
+// - Mostro una notifica testuale
+// - Le segno come "notificate" per non ripeterle (notificato_annullamento)
 // =========================================================
 $notifiche_annullati = [];
 
@@ -200,6 +228,7 @@ if ($resNotif) {
     }
 }
 
+// Segno come notificate tutte le prenotazioni relative a eventi annullati
 if (!empty($notifiche_annullati)) {
     $sql_mark = "
         UPDATE prenotazioni p
@@ -215,6 +244,9 @@ if (!empty($notifiche_annullati)) {
 
 // =========================================================
 // QUERY DATI PAGINA
+// ---------------------------------------------------------
+// Da qui in poi vengono caricati tutti i blocchi dati
+// necessari alla dashboard (prenotati, storico, preferenze, ecc.)
 // =========================================================
 
 // A) Prossimi eventi prenotati (FUTURI, anche annullati per info UX)
@@ -265,12 +297,12 @@ $sql_pren_passati = "
 $res = pg_query_params($conn, $sql_pren_passati, [$user_id]);
 if ($res) while ($row = pg_fetch_assoc($res)) $storico[] = $row;
 
-// C) Categorie (per select)
+// C) Categorie (per select di ricerca rapida nella dashboard)
 $categorie = [];
 $res = pg_query($conn, "SELECT id, nome FROM categorie ORDER BY nome;");
 if ($res) while ($row = pg_fetch_assoc($res)) $categorie[] = $row;
 
-// D) Preferenze
+// D) Preferenze utente (ordine categorie preferite)
 $prefs = [];
 $sql_pref = "
     SELECT categoria_id
@@ -282,6 +314,12 @@ $res = pg_query_params($conn, $sql_pref, [$user_id]);
 if ($res) while ($row = pg_fetch_assoc($res)) $prefs[] = (int)$row['categoria_id'];
 
 // E) Scelti per te
+// ---------------------------------------------------------
+// Suggerimenti basati su:
+// - categorie preferite
+// - eventi futuri, approvati, non archiviati, attivi
+// - non già prenotati dall'utente
+// ---------------------------------------------------------
 $consigliati = [];
 if (count($prefs) > 0) {
 
@@ -289,6 +327,7 @@ if (count($prefs) > 0) {
     $params = [];
     $i = 1;
 
+    // Costruisco lista di placeholder $1,$2,... per IN (...)
     foreach ($prefs as $catId) {
         $placeholders[] = '$' . $i;
         $params[] = $catId;
@@ -296,6 +335,7 @@ if (count($prefs) > 0) {
     }
     $in = implode(',', $placeholders);
 
+    // Aggiungo utente come ultimo parametro per NOT EXISTS prenotazioni
     $params[] = $user_id;
     $uidPh = '$' . $i;
 
@@ -328,6 +368,10 @@ if (count($prefs) > 0) {
 }
 
 // F) Recensioni approvate
+// ---------------------------------------------------------
+// Mostro un piccolo "wall" di recensioni già approvate
+// per dare un feedback sociale sulla piattaforma.
+// ---------------------------------------------------------
 $recensioni = [];
 $sql_rev = "
     SELECT
@@ -344,6 +388,7 @@ $sql_rev = "
 $res = pg_query($conn, $sql_rev);
 if ($res) while ($row = pg_fetch_assoc($res)) $recensioni[] = $row;
 
+// A questo punto ho raccolto tutti i dati necessari e posso chiudere la connessione
 db_close($conn);
 
 $page_title = "Dashboard - EnjoyCity";
@@ -352,14 +397,17 @@ require_once __DIR__ . '/includes/header.php';
 
 <main class="container dashboard" id="content">
 
+    <!-- Flash di successo -->
     <?php if ($flash_ok !== ''): ?>
         <div class="alert alert-success" role="status"><?= e($flash_ok) ?></div>
     <?php endif; ?>
 
+    <!-- Flash di errore -->
     <?php if ($flash_err !== ''): ?>
         <div class="alert alert-error" role="alert"><?= e($flash_err) ?></div>
     <?php endif; ?>
 
+    <!-- Notifiche su eventi annullati (mostrate una sola volta) -->
     <?php if (!empty($notifiche_annullati)): ?>
         <section class="panel annullamenti-panel" aria-label="Eventi annullati">
             <header class="panel-head">
@@ -400,6 +448,7 @@ require_once __DIR__ . '/includes/header.php';
                     $evId        = (int)$ev['evento_id'];
                     $statoEvento = (string)($ev['stato_evento'] ?? 'attivo');
 
+                    // data_evento in formato ISO8601 per countdown JS (dashboard.js)
                     $dtISO  = date('c', strtotime((string)$ev['data_evento']));
                     ?>
                     <article class="card" role="listitem">
@@ -415,6 +464,7 @@ require_once __DIR__ . '/includes/header.php';
                         <p class="card-meta muted"><?= e($ev['luogo']) ?> • Biglietti: <?= (int)$ev['quantita'] ?></p>
 
                         <?php if ($statoEvento === 'attivo'): ?>
+                            <!-- Countdown aggiornato via JS (dataset data-countdown) -->
                             <p class="countdown" data-countdown="<?= e($dtISO) ?>">Caricamento countdown…</p>
                         <?php else: ?>
                             <p class="countdown muted">
@@ -425,6 +475,7 @@ require_once __DIR__ . '/includes/header.php';
                         <div class="card-actions">
                             <a class="btn small" href="<?= base_url('evento.php?id=' . $evId) ?>">Dettagli</a>
 
+                            <!-- Annulla prenotazione solo se evento ancora attivo -->
                             <?php if ($statoEvento === 'attivo'): ?>
                                 <form action="<?= base_url('dashboard.php') ?>" method="post" class="inline"
                                     data-confirm="Vuoi davvero annullare questa prenotazione?">
@@ -476,6 +527,9 @@ require_once __DIR__ . '/includes/header.php';
 
     <!-- =====================================================
          B) RICERCA EVENTI (rimanda a eventi.php)
+         -----------------------------------------------------
+         Piccolo form che riusa la logica già presente nella
+         pagina eventi.php per i filtri completi.
          ===================================================== -->
     <section class="search-card" aria-label="Cerca eventi">
         <form method="get" action="<?= base_url('eventi.php') ?>" class="search-grid" id="searchForm">
@@ -497,6 +551,9 @@ require_once __DIR__ . '/includes/header.php';
 
     <!-- =====================================================
          C) SCELTI PER TE (preferenze + esclusione prenotati)
+         -----------------------------------------------------
+         Se l'utente ha impostato categorie di interesse, qui
+         vengono mostrati suggerimenti personalizzati.
          ===================================================== -->
     <section class="panel" aria-labelledby="h-scelti">
         <header class="panel-head">
@@ -547,7 +604,9 @@ require_once __DIR__ . '/includes/header.php';
 
     <!-- =====================================================
          D) RECENSIONI (form + preview)
-         - Inserimento in stato "in_attesa" → moderazione admin
+         -----------------------------------------------------
+         - L'utente inserisce una recensione sul sito.
+         - Entra in stato "in_attesa" e sarà moderata dall'admin.
          ===================================================== -->
     <section class="panel" id="recensioni" aria-labelledby="h-recensioni">
         <header class="panel-head">
@@ -610,7 +669,9 @@ require_once __DIR__ . '/includes/header.php';
 
 </main>
 
+<!-- CSS dedicato alla dashboard utente -->
 <link rel="stylesheet" href="<?= base_url('assets/css/dashboard.css') ?>">
+<!-- JS dashboard: countdown, conferme, migliorìe UX -->
 <script src="<?= base_url('assets/js/dashboard.js') ?>"></script>
 
 <?php require_once __DIR__ . '/includes/footer.php'; ?>

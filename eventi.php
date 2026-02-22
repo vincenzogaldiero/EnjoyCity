@@ -2,12 +2,19 @@
 // ================================================================
 // FILE: eventi.php
 // Lista eventi futuri (pagina pubblica, con extra per loggati)
+//
+// Ruolo nel progetto:
+// - È la pagina indice degli eventi, visibile anche ai non loggati.
+// - Implementa filtri di ricerca, categorie, ordinamento, preferenze,
+//   e geolocalizzazione.
+//
 // Regole di visibilità in LISTA:
 // - Mostra eventi FUTURI
 // - stato = 'approvato'
 // - archiviato = FALSE
 // - stato_evento può essere 'attivo' oppure 'annullato'
-//   (gli annullati sono visibili ma non prenotabili dal dettaglio)
+//   (gli annullati sono visibili in lista ma non prenotabili dal dettaglio)
+//
 // ================================================================
 
 ini_set('display_errors', 1);
@@ -21,37 +28,44 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 
 // Stato utente
+// - $logged: true/false
+// - $user_id: id dell'utente loggato, 0 se anonimo
 $logged  = isset($_SESSION['logged']) && $_SESSION['logged'] === true;
 $user_id = ($logged && isset($_SESSION['user_id'])) ? (int)$_SESSION['user_id'] : 0;
 
-// Connessione al database
+// Connessione al database PostgreSQL
 $conn = db_connect();
 
 // --------------------------------------------------------------
 // Filtri GET: ricerca, categoria, ordinamento, geolocalizzazione
 // --------------------------------------------------------------
+// Ricerca testuale (titolo, luogo, descrizione breve)
 $q = trim((string)($_GET['q'] ?? ''));
 
+// Filtro per categoria (id intero)
 $categoria    = (string)($_GET['categoria'] ?? '');
 $categoria_id = null;
 if ($categoria !== '' && ctype_digit($categoria)) {
   $categoria_id = (int)$categoria;
 }
 
-// Ordinamento (solo utenti loggati)
-$ordine        = (string)($_GET['ordine'] ?? 'data'); // data | prezzo | vicino
+// Ordinamento (solo utenti loggati possono scegliere)
+// Opzioni: data | prezzo | vicino
+$ordine        = (string)($_GET['ordine'] ?? 'data'); // default = data
 $ordine_valido = in_array($ordine, ['data', 'prezzo', 'vicino'], true) ? $ordine : 'data';
 
-// Se non loggato, forziamo SEMPRE 'data'
+// Se non loggato, forziamo SEMPRE 'data' (ordinamento base cronologico)
 if (!$logged) {
   $ordine_valido = 'data';
 }
 
 // Coordinate GPS (solo loggati e se ordine = vicino)
+// Vengono di solito impostate via JavaScript (navigator.geolocation)
 $lat = isset($_GET['lat']) && $_GET['lat'] !== '' ? (float)$_GET['lat'] : null;
 $lon = isset($_GET['lon']) && $_GET['lon'] !== '' ? (float)$_GET['lon'] : null;
 
 // Validazione geolocalizzazione
+// - attiva solo se: utente loggato, ordine = 'vicino', coordinate nel range valido
 $geo_ok = (
   $logged &&
   $ordine_valido === 'vicino' &&
@@ -63,6 +77,7 @@ $geo_ok = (
 // -----------------------------------
 // Caricamento categorie per il filtro
 // -----------------------------------
+// Query semplice per popolare la <select> delle categorie
 $categorie = [];
 $resCat = pg_query($conn, "SELECT id, nome FROM categorie ORDER BY nome;");
 if ($resCat) {
@@ -74,6 +89,8 @@ if ($resCat) {
 // ----------------------------------
 // Preferenze dei soli utenti loggati
 // ----------------------------------
+// prefMap: mappa categoria_id => ordine (1,2,3,...)
+// prefIds: array dei soli id categoria ordinati per preferenza
 $prefMap = []; // categoria_id => ordine
 $prefIds = []; // array ordinato di categoria_id
 
@@ -100,6 +117,7 @@ if ($logged && $user_id > 0) {
 // Costruzione WHERE base: eventi futuri, approvati, non archiviati
 // (stato_evento può essere 'attivo' o 'annullato')
 // ----------------------------------------------------------------
+// Uso array $where + $params per costruire una query flessibile
 $where  = [];
 $params = [];
 $idx    = 1;
@@ -108,7 +126,8 @@ $where[] = "e.stato = 'approvato'";
 $where[] = "e.archiviato = FALSE";
 $where[] = "e.data_evento >= NOW()";
 
-// Filtro per ricerca testuale
+// Filtro per ricerca testuale:
+// match su titolo, luogo o descrizione breve (ILIKE = case-insensitive)
 if ($q !== '') {
   $where[] = "(e.titolo ILIKE $" . $idx .
     " OR e.luogo ILIKE $" . $idx .
@@ -125,12 +144,15 @@ if ($categoria_id !== null) {
 }
 
 // -------------------------------------------------------------------
-// pref_sort: prima le categorie preferite (1,2,3...), altrimenti 9999
+// pref_sort: prima le categorie preferite (ordine 1,2,3...), altrimenti 9999
 // -------------------------------------------------------------------
+// pref_sort serve per dare priorità agli eventi delle categorie preferite
+// dell'utente (card 'Per te' mostrate per prime).
 $prefSortSql = "9999 AS pref_sort";
 
 if ($logged && count($prefIds) > 0) {
   $case = "CASE";
+  // Costruisco un CASE dinamico: WHEN e.categoria_id = $n THEN <ordine>
   foreach ($prefIds as $cid) {
     $case    .= " WHEN e.categoria_id = $" . $idx . " THEN " . (int)$prefMap[$cid];
     $params[] = $cid;
@@ -141,9 +163,10 @@ if ($logged && count($prefIds) > 0) {
 }
 
 // -----------------------------------------------------------
-// Calcolo della distanza, solo se la geocalizzazione è valida
-// distanza_km se geo_ok
+// Calcolo della distanza, solo se la geolocalizzazione è valida
 // -----------------------------------------------------------
+// Se geo_ok è true, aggiungo alla SELECT un campo distanza_km
+// calcolato con una formula trigonometrica (approssimazione sferica).
 $distanceSelect = "NULL::double precision AS distanza_km";
 
 if ($geo_ok) {
@@ -172,17 +195,26 @@ if ($geo_ok) {
 // ----------------------------------
 // Order By (data, prezzo o distanza)
 // ----------------------------------
+// Ordinamento di default: per data_evento crescente
 $orderSql = "e.data_evento ASC";
 
+// Se loggato e scelto "prezzo", ordino per prezzo (null per ultimi)
 if ($logged && $ordine_valido === 'prezzo') {
   $orderSql = "e.prezzo ASC NULLS LAST, e.data_evento ASC";
 } elseif ($geo_ok) {
+  // Se ho geolocalizzazione valida e ordine = "vicino",
+  // ordino per distanza crescente e poi per data
   $orderSql = "distanza_km ASC NULLS LAST, e.data_evento ASC";
 }
 
 // ----------------------------------------------
 // Query finale con filtri, preferenze e distanza
 // ----------------------------------------------
+// SELECT principale della lista eventi:
+// - unisce eventi e categorie
+// - include pref_sort (per pref. utente) e distanza_km (se geo attiva)
+// - applica filtri dinamici su WHERE
+// - ordina prima per pref_sort, poi per criterio scelto, infine per id
 $sql = "
     SELECT
         e.id,
@@ -209,17 +241,20 @@ $sql = "
 
 $res = pg_query_params($conn, $sql, $params);
 if (!$res) {
+  // In caso di errore query, chiudo connessione e mostro messaggio tecnico
   db_close($conn);
   die("Errore query eventi: " . pg_last_error($conn));
 }
 
-$page_title = "Eventi - EnjoyCity";               // metadato
-require_once __DIR__ . '/includes/header.php';    // inclusione dell'header del sito
+// Metadato per il <title> della pagina
+$page_title = "Eventi - EnjoyCity";
+// Inclusione dell'header comune del sito
+require_once __DIR__ . '/includes/header.php';
 ?>
 
 <main>
   <div class="container">
-    
+
     <!-- Intestazione pagina eventi -->
     <header class="section-title eventi-head">
       <div>
@@ -230,8 +265,8 @@ require_once __DIR__ . '/includes/header.php';    // inclusione dell'header del 
             : "Eventi futuri. Accedi per vedere dettagli e prenotare." ?>
         </p>
       </div>
-      
-      <!-- CTA contestuale: dashboard o login -->
+
+      <!-- CTA contestuale: dashboard se loggato, login se anonimo -->
       <a class="btn" href="<?= $logged ? base_url('dashboard.php') : base_url('login.php') ?>">
         <?= $logged ? "Vai alla dashboard" : "Accedi" ?>
       </a>
@@ -243,8 +278,8 @@ require_once __DIR__ . '/includes/header.php';    // inclusione dell'header del 
         action="<?= base_url('eventi.php') ?>"
         class="search-grid"
         id="eventiFilterForm">
-        
-        <!-- Ricerca testuale -->
+
+        <!-- Ricerca testuale (q) -->
         <input
           class="input wide"
           type="text"
@@ -252,8 +287,8 @@ require_once __DIR__ . '/includes/header.php';    // inclusione dell'header del 
           placeholder="Cerca per titolo, luogo, descrizione…"
           value="<?= e($q) ?>"
           aria-label="Cerca eventi">
-        
-        <!-- Filtro categoria -->
+
+        <!-- Filtro categoria: popolato dinamicamente da tabella categorie -->
         <select name="categoria" aria-label="Categoria">
           <option value="">Tutte le categorie</option>
           <?php foreach ($categorie as $c): ?>
@@ -262,7 +297,7 @@ require_once __DIR__ . '/includes/header.php';    // inclusione dell'header del 
             </option>
           <?php endforeach; ?>
         </select>
-        
+
         <!-- Filtri avanzati (solo utenti loggati) -->
         <?php if ($logged): ?>
           <select name="ordine" aria-label="Ordina" id="ordineSelect">
@@ -270,39 +305,41 @@ require_once __DIR__ . '/includes/header.php';    // inclusione dell'header del 
             <option value="prezzo" <?= $ordine_valido === 'prezzo' ? 'selected' : '' ?>>Prezzo (crescente)</option>
             <option value="vicino" <?= $ordine_valido === 'vicino' ? 'selected' : '' ?>>Vicino a me</option>
           </select>
-          
-          <!-- Coordinate GPS (riempite via JS) -->
+
+          <!-- Coordinate GPS (riempite via JS se l’utente sceglie "Vicino a me") -->
           <input type="hidden" name="lat" id="geo-lat" value="<?= $lat !== null ? e((string)$lat) : '' ?>">
           <input type="hidden" name="lon" id="geo-lon" value="<?= $lon !== null ? e((string)$lon) : '' ?>">
-          
-          <!-- Bottone volto a ottenere la posizione -->
+
+          <!-- Bottone per ottenere la posizione via HTML5 Geolocation API -->
           <button class="btn-search btn-geo" type="button" id="btn-vicino">Vicino a me</button>
         <?php endif; ?>
-        
+
         <!-- Submit filtri -->
         <button class="btn-search" type="submit">Filtra</button>
-        
-        <!-- Reset filtri -->
+
+        <!-- Reset filtri (mostrato solo se almeno un filtro è attivo) -->
         <?php if ($q !== '' || $categoria_id !== null || ($logged && $ordine_valido !== 'data')): ?>
           <a class="btn-search btn-reset" href="<?= base_url('eventi.php') ?>">Reset</a>
         <?php endif; ?>
 
       </form>
     </section>
-    
-    <!-- Nessun risultato -->
+
+    <!-- Nessun risultato trovato con i filtri -->
     <?php if (pg_num_rows($res) === 0): ?>
       <div class="empty" style="margin-top:14px;">
         Nessun evento futuro trovato con questi filtri.
       </div>
     <?php else: ?>
-      
+
       <!-- Lista eventi -->
       <div class="eventi-page">
         <section class="events-list" aria-label="Elenco eventi futuri">
 
           <?php while ($ev = pg_fetch_assoc($res)): ?>
             <?php
+            // Per ogni riga evento, preparo alcune variabili di comodo
+
             $id = (int)$ev['id'];
 
             $statoEvento  = (string)($ev['stato_evento'] ?? 'attivo');
@@ -319,10 +356,11 @@ require_once __DIR__ . '/includes/header.php';    // inclusione dell'header del 
             $isInfo          = ($ev['posti_totali'] === null || $ev['posti_totali'] === '');
             $hasLimitedSeats = (!$isInfo && (int)$ev['posti_totali'] > 0);
 
-            // Categoria preferita dall'utente
+            // Categoria preferita dall'utente (per evidenziare la card)
             $isPreferred = ($logged && isset($prefMap[(int)$ev['categoria_id']]));
 
             // Badge countdown tempo (solo loggati)
+            // Calcola un'etichetta come "Domani", "Tra 2 giorni", "Tra 3h 15m" ecc.
             $badge = '';
             if ($logged) {
               $now = new DateTime('now');
@@ -348,7 +386,7 @@ require_once __DIR__ . '/includes/header.php';    // inclusione dell'header del 
               }
             }
 
-            // Distanza evento (solo se geo_ok viene calcolata)
+            // Distanza evento (solo se geo_ok e calcolata a DB)
             $distLabel = '';
             if ($logged && $geo_ok && $ev['distanza_km'] !== null && $ev['distanza_km'] !== '') {
               $dist = (float)$ev['distanza_km'];
@@ -357,22 +395,23 @@ require_once __DIR__ . '/includes/header.php';    // inclusione dell'header del 
               }
             }
             ?>
-            
-            <!-- Card evento -->
+
+            <!-- Card evento singolo -->
             <article class="card event-card <?= $isPreferred ? 'card-preferred' : '' ?> <?= $isCancelled ? 'card-cancelled' : '' ?>"
 
               aria-label="Evento <?= e($ev['titolo']) ?>">
-              
+
               <!-- Immagine evento -->
               <div class="card-img">
                 <?php if (!empty($ev['immagine'])): ?>
                   <img src="<?= e($ev['immagine']) ?>"
                     alt="Immagine evento: <?= e($ev['titolo']) ?>">
                 <?php else: ?>
+                  <!-- Fallback testuale se non è presente un'immagine -->
                   <span aria-hidden="true"><?= e($ev['categoria'] ?? 'Evento') ?></span>
                 <?php endif; ?>
-                
-                <!-- Tag sovrapposti -->
+
+                <!-- Tag sovrapposti all'immagine (badge visivi) -->
                 <div class="img-tags" aria-hidden="true">
                   <?php if ($isPreferred): ?>
                     <span class="tag-overlay pref">Per te</span>
@@ -403,8 +442,8 @@ require_once __DIR__ . '/includes/header.php';    // inclusione dell'header del 
                   <?php endif; ?>
                 </div>
               </div>
-              
-              <!-- Corpo card -->
+
+              <!-- Corpo card con info principali -->
               <div class="card-body">
                 <div class="tag-row">
                   <span class="tag cardtag"><?= e($ev['categoria'] ?? 'Evento') ?></span>
@@ -430,8 +469,8 @@ require_once __DIR__ . '/includes/header.php';    // inclusione dell'header del 
                 </p>
 
                 <p class="desc"><?= e($ev['descrizione_breve']) ?></p>
-                
-                <!-- CTA finale -->
+
+                <!-- dettaglio evento o login -->
                 <?php if ($logged): ?>
                   <a class="cta-login"
                     href="<?= base_url('evento.php?id=' . urlencode((string)$id)) ?>">
@@ -458,56 +497,12 @@ require_once __DIR__ . '/includes/header.php';    // inclusione dell'header del 
   </div>
 </main>
 
+<?php if ($logged): ?>
+  <script src="<?= base_url('assets/js/eventi.js') ?>"></script>
+<?php endif; ?>
+
 <!-- Inclusione del footer del sito -->
 <?php require_once __DIR__ . '/includes/footer.php'; ?>
 
-<?php if ($logged): ?>
-  <!-- Script per gestione geolocalizzazione e ordinamento "vicino a me" -->
-  <script>
-    document.addEventListener("DOMContentLoaded", function() {
-
-      // Riferimenti agli elementi del form
-      const btn = document.getElementById("btn-vicino");
-      const form = document.getElementById("eventiFilterForm");
-      const ordineSelect = document.getElementById("ordineSelect");
-
-      if (!btn || !form || !ordineSelect) return;
-      
-      // Richiede la posizione all’utente e invia il form con lat/lon
-      function requestGeoAndSubmit() {
-        if (!navigator.geolocation) {
-          alert("Geolocalizzazione non supportata dal browser.");
-          return;
-        }
-
-        navigator.geolocation.getCurrentPosition(function(pos) {
-          document.getElementById("geo-lat").value = pos.coords.latitude;
-          document.getElementById("geo-lon").value = pos.coords.longitude;
-          ordineSelect.value = "vicino";
-          form.submit();
-        }, function() {
-          alert("Permesso posizione negato o non disponibile.");
-        }, {
-          enableHighAccuracy: true,
-          timeout: 8000
-        });
-      }
-      
-      // Click sul bottone "Vicino a me"
-      btn.addEventListener("click", requestGeoAndSubmit);
-
-      // Se seleziono "vicino" dal select senza coordinate → chiedo geo al submit
-      form.addEventListener("submit", function(e) {
-        if (ordineSelect.value !== "vicino") return;
-        const lat = document.getElementById("geo-lat").value;
-        const lon = document.getElementById("geo-lon").value;
-        if (lat && lon) return;
-        e.preventDefault();
-        requestGeoAndSubmit();
-      });
-    });
-  </script>
-<?php endif; ?>
-
-<!-- Chiusura della connessione al database -->
+<!-- Chiusura della connessione al database (buona pratica) -->
 <?php db_close($conn); ?>

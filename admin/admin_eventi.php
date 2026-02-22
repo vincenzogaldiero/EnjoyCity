@@ -1,22 +1,34 @@
 <?php
 // =========================================================
 // FILE: admin/admin_eventi.php
+// =========================================================
 // Area Admin - Gestione Eventi
 //
-// Sezioni funzionali:
-//  1) LIVE      -> approvati, futuri, attivi, NON archiviati (online al pubblico)
-//  2) PENDING   -> in attesa (moderazione contenuti)
-//  3) REJECTED  -> rifiutati (storico moderazione)
-//  4) DONE      -> approvati, passati (audit / eventi conclusi)
-//  5) CANCELLED -> approvati, stato_evento = 'annullato' (solo admin)
-//  6) ARCHIVED  -> approvati, archiviati = TRUE (solo admin, non pubblico)
+// Scopo didattico:
+// - Pagina centrale per la gestione completa del ciclo di vita degli eventi.
+// - Suddivisione logica in "sezioni funzionali" per stato e visibilità:
+//    1) LIVE      -> approvati, futuri, attivi, NON archiviati (online al pubblico)
+//    2) PENDING   -> in attesa (in coda di moderazione)
+//    3) REJECTED  -> rifiutati (storico decisioni di moderazione)
+//    4) DONE      -> approvati, passati (storico eventi conclusi / audit)
+//    5) CANCELLED -> approvati, stato_evento = 'annullato' (solo admin, non pubblico)
+//    6) ARCHIVED  -> approvati, archiviati = TRUE (solo admin, non pubblico)
+//
+// Note progettuali:
+// - Le varie sezioni condividono una SELECT base e differiscono solo per le WHERE.
+// - La ricerca è lato server (param q) ma è integrata con una ricerca live client-side.
+// - Tutte le azioni sulle righe (archivia, annulla, approva, ecc.) sono demandate
+//   a admin_event_action.php e passano sempre da POST, non da GET.
 // =========================================================
 
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
+// Config generale (connessione DB, helper base_url, e(), etc.)
 require_once __DIR__ . '/../includes/config.php';
+
+// Avvio sessione per leggere dati utente e flash messages
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
@@ -24,6 +36,10 @@ if (session_status() === PHP_SESSION_NONE) {
 // =========================================================
 // 1) Guard: SOLO ADMIN
 // =========================================================
+// Controllo di sicurezza lato server:
+// - Utente deve essere autenticato
+// - Ruolo in sessione deve essere 'admin'
+// In caso contrario: messaggio di errore + redirect al login.
 if (
     !isset($_SESSION['logged']) ||
     $_SESSION['logged'] !== true ||
@@ -34,12 +50,18 @@ if (
     exit;
 }
 
+// Titolo mostrato nella <title> del layout admin
 $page_title = "Eventi - Area Admin";
+
+// Apertura connessione a PostgreSQL
 $conn = db_connect();
 
 // =========================================================
 // 2) Flash message (pattern PRG: Post/Redirect/Get)
 // =========================================================
+// Le pagine di azione (approva/rifiuta/archivia...) impostano
+// $_SESSION['flash_ok'] / $_SESSION['flash_error'] e poi fanno redirect qui.
+// In questo modo il messaggio compare una sola volta, poi viene eliminato.
 $flash_ok    = $_SESSION['flash_ok'] ?? '';
 $flash_error = $_SESSION['flash_error'] ?? '';
 unset($_SESSION['flash_ok'], $_SESSION['flash_error']);
@@ -47,15 +69,20 @@ unset($_SESSION['flash_ok'], $_SESSION['flash_error']);
 // =========================================================
 // 3) Ricerca lato server (filtro testuale su titolo/luogo)
 // =========================================================
+// Il parametro q viene usato per filtrare i risultati lato server.
+// Inoltre l'input è collegato alla ricerca live lato client (data-filter).
 $q = trim((string)($_GET['q'] ?? ''));
 
 // ---------------------------------------------------------
 // Helper: esegue query e torna array di righe associative
 // ---------------------------------------------------------
+// Incapsula la logica di pg_query / pg_query_params e il fetch
+// in un'unica funzione riusabile per tutte le sezioni.
 function fetch_all_rows($conn, string $sql, array $params = []): array
 {
     $res = $params ? pg_query_params($conn, $sql, $params) : pg_query($conn, $sql);
     if (!$res) {
+        // In caso di errore DB, fermo l'esecuzione (scopo didattico).
         die("Errore query: " . pg_last_error($conn));
     }
     $out = [];
@@ -68,9 +95,13 @@ function fetch_all_rows($conn, string $sql, array $params = []): array
 // ---------------------------------------------------------
 // Helper: costruisce filtro di ricerca parametrizzato
 // ---------------------------------------------------------
+// Genera una condizione "AND (titolo ILIKE $X OR luogo ILIKE $X)"
+// e l'array param corrispondente. Il parametro startIndex consente
+// di decidere il numero del placeholder ($1, $2, ...).
 function build_search_condition(string $q, int $startIndex = 1): array
 {
     if ($q === '') {
+        // Nessun filtro di ricerca se q è vuoto
         return ['', []];
     }
 
@@ -84,8 +115,11 @@ function build_search_condition(string $q, int $startIndex = 1): array
 // =========================================================
 // 4) Query per sezioni
 // =========================================================
+// Costruisco il frammento di condizione per la ricerca, se presente.
 list($condQ, $paramsQ) = build_search_condition($q, 1);
 
+// SELECT base comune a tutte le sezioni, con join sulla categoria.
+// Ogni sezione aggiungerà solo la propria WHERE specifica.
 $selectBase = "
   SELECT e.id, e.titolo, e.data_evento, e.luogo,
          e.prezzo, e.prenotazione_obbligatoria,
@@ -97,6 +131,7 @@ $selectBase = "
 ";
 
 // 1) LIVE: approvati + futuri + attivi + non archiviati
+//    => rappresenta gli eventi effettivamente online per gli utenti.
 $sql_live = $selectBase . "
   WHERE e.stato = 'approvato'
     AND e.archiviato = FALSE
@@ -106,21 +141,22 @@ $sql_live = $selectBase . "
   ORDER BY e.data_evento ASC;
 ";
 
-// 2) PENDING: in attesa (moderazione)
+// 2) PENDING: eventi in attesa di moderazione
 $sql_pending = $selectBase . "
   WHERE e.stato = 'in_attesa'
     {$condQ}
   ORDER BY e.data_evento ASC;
 ";
 
-// 3) REJECTED: rifiutati (storico moderazione)
+// 3) REJECTED: eventi rifiutati (storico moderazione)
 $sql_rejected = $selectBase . "
   WHERE e.stato = 'rifiutato'
     {$condQ}
   ORDER BY e.data_evento DESC;
 ";
 
-// 4) DONE: approvati passati (qualsiasi stato_evento, utile per audit)
+// 4) DONE: eventi già conclusi ma approvati
+//    (indipendentemente dallo stato_evento, utile per audit/storico)
 $sql_done = $selectBase . "
   WHERE e.stato = 'approvato'
     AND e.data_evento < NOW()
@@ -128,7 +164,8 @@ $sql_done = $selectBase . "
   ORDER BY e.data_evento DESC;
 ";
 
-// 5) CANCELLED: approvati, stato_evento = 'annullato'
+// 5) CANCELLED: eventi approvati che sono stati annullati
+//    -> non visibili al pubblico, ma visibili in area admin per tracciamento.
 $sql_cancelled = $selectBase . "
   WHERE e.stato = 'approvato'
     AND e.stato_evento = 'annullato'
@@ -136,7 +173,8 @@ $sql_cancelled = $selectBase . "
   ORDER BY e.data_evento DESC;
 ";
 
-// 6) ARCHIVED: approvati archiviati (TRUE)
+// 6) ARCHIVED: eventi approvati archiviati
+//    -> non visibili al pubblico ma mantenuti nel DB per storico.
 $sql_archived = $selectBase . "
   WHERE e.stato = 'approvato'
     AND e.archiviato = TRUE
@@ -144,7 +182,8 @@ $sql_archived = $selectBase . "
   ORDER BY e.data_evento DESC;
 ";
 
-// Esecuzione query (solo lettura)
+// Esecuzione query (solo lettura) per ciascuna sezione.
+// Tutte riutilizzano la stessa condizione e gli stessi parametri di ricerca.
 $eventi_live      = fetch_all_rows($conn, $sql_live, $paramsQ);
 $eventi_pending   = fetch_all_rows($conn, $sql_pending, $paramsQ);
 $eventi_rejected  = fetch_all_rows($conn, $sql_rejected, $paramsQ);
@@ -152,19 +191,25 @@ $eventi_done      = fetch_all_rows($conn, $sql_done, $paramsQ);
 $eventi_cancelled = fetch_all_rows($conn, $sql_cancelled, $paramsQ);
 $eventi_archived  = fetch_all_rows($conn, $sql_archived, $paramsQ);
 
+// Chiudo la connessione: da qui in poi è solo render HTML.
 db_close($conn);
 
+// Inclusione header area admin (navbar, layout, ecc.)
 require_once __DIR__ . '/../includes/admin_header.php';
 
 // =========================================================
 // 5) Render helpers (UI)
 // =========================================================
 
+// Conversione locale di valori booleani PostgreSQL
+// (utile nel template HTML).
 function is_true_pg_local($v): bool
 {
     return ($v === 't' || $v === true || $v === '1' || $v === 1);
 }
 
+// Helper per generare in modo coerente i pulsanti di azione
+// (approva, rifiuta, archivia, ecc.) come form POST.
 function render_action_btn(int $id, string $azione, string $label, string $class = 'btn'): void
 {
     $confirm = "Confermi l'azione '{$azione}' sull'evento #{$id}?";
@@ -180,10 +225,13 @@ function render_action_btn(int $id, string $azione, string $label, string $class
 <?php
 }
 
+// Render di una singola riga evento, usata in tutte le sezioni.
+// La variabile $section guida quali pulsanti/azioni mostrare (live, pending, done, ecc.).
 function render_event_row(array $ev, string $section): void
 {
     $id = (int)($ev['id'] ?? 0);
 
+    // Evento informativo: posti_totali = NULL
     $isInfo    = ($ev['posti_totali'] === null);
     $postiPren = (int)($ev['posti_prenotati'] ?? 0);
     $postiTot  = $isInfo ? null : (int)$ev['posti_totali'];
@@ -193,6 +241,8 @@ function render_event_row(array $ev, string $section): void
     $stEv      = (string)($ev['stato_evento'] ?? 'attivo');
     $prenObbl  = is_true_pg_local($ev['prenotazione_obbligatoria'] ?? 'f');
 
+    // Costruzione classi CSS in base allo stato dell'evento
+    // (visivamente distinguibili attraverso il CSS).
     $rowClass = "row";
     if ($st === 'in_attesa')   $rowClass .= " is-pending";
     if ($st === 'approvato')   $rowClass .= " is-approved";
@@ -229,15 +279,19 @@ function render_event_row(array $ev, string $section): void
         </div>
 
         <div class="row-actions" style="flex-wrap:wrap;">
+            <!-- Apertura pagina pubblica evento (comoda per controllare cosa vede l’utente) -->
             <a class="btn btn-ghost" href="<?= e(base_url('evento.php?id=' . $id)) ?>">Apri</a>
+            <!-- Modifica completa evento (form admin_event_edit.php) -->
             <a class="btn btn-admin" href="<?= e(base_url('admin/admin_event_edit.php?id=' . $id)) ?>">Modifica</a>
 
             <?php if ($section === 'pending'): ?>
+                <!-- In coda di moderazione: approva o rifiuta -->
                 <?php render_action_btn($id, 'approva', 'Approva', 'btn btn-ok'); ?>
                 <?php render_action_btn($id, 'rifiuta', 'Rifiuta', 'btn btn-danger'); ?>
             <?php endif; ?>
 
             <?php if ($section === 'live'): ?>
+                <!-- Eventi live: è possibile annullare o riattivare, e archiviare -->
                 <?php if ($stEv === 'attivo'): ?>
                     <?php render_action_btn($id, 'annulla', 'Annulla', 'btn btn-danger'); ?>
                 <?php else: ?>
@@ -247,6 +301,7 @@ function render_event_row(array $ev, string $section): void
             <?php endif; ?>
 
             <?php if ($section === 'done'): ?>
+                <!-- Eventi conclusi: possono essere archiviati o ripristinati -->
                 <?php if (!$arch): ?>
                     <?php render_action_btn($id, 'archivia', 'Archivia', 'btn btn-ghost'); ?>
                 <?php else: ?>
@@ -255,6 +310,7 @@ function render_event_row(array $ev, string $section): void
             <?php endif; ?>
 
             <?php if ($section === 'cancelled'): ?>
+                <!-- Eventi annullati: riattivabili e/o archiviabili -->
                 <?php render_action_btn($id, 'riattiva', 'Riattiva', 'btn btn-ok'); ?>
                 <?php if (!$arch): ?>
                     <?php render_action_btn($id, 'archivia', 'Archivia', 'btn btn-ghost'); ?>
@@ -264,6 +320,7 @@ function render_event_row(array $ev, string $section): void
             <?php endif; ?>
 
             <?php if ($section === 'archived'): ?>
+                <!-- Eventi archiviati: possono essere ripristinati o (se attivi) annullati -->
                 <?php render_action_btn($id, 'ripristina', 'Ripristina', 'btn btn-ok'); ?>
                 <?php if ($stEv === 'attivo'): ?>
                     <?php render_action_btn($id, 'annulla', 'Annulla', 'btn btn-danger'); ?>
@@ -271,6 +328,7 @@ function render_event_row(array $ev, string $section): void
             <?php endif; ?>
 
             <?php if ($section === 'rejected'): ?>
+                <!-- Eventi rifiutati: in questo schema possono anche essere archiviati/ripristinati -->
                 <?php if ($arch): ?>
                     <?php render_action_btn($id, 'ripristina', 'Ripristina', 'btn btn-ok'); ?>
                 <?php endif; ?>
@@ -294,6 +352,8 @@ function render_event_row(array $ev, string $section): void
     </header>
 
     <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+        <!-- Link di ancoraggio alle varie sezioni della pagina,
+             con badge che mostrano il numero di eventi per categoria. -->
         <a class="btn btn-ghost" href="#live">Attivi (<?= count($eventi_live) ?>)</a>
         <a class="btn btn-ghost" href="#pending">In attesa (<?= count($eventi_pending) ?>)</a>
         <a class="btn btn-ghost" href="#rejected">Rifiutati (<?= count($eventi_rejected) ?>)</a>
@@ -303,6 +363,7 @@ function render_event_row(array $ev, string $section): void
 
         <span style="flex:1;"></span>
 
+        <!-- Pulsante per creare un nuovo evento (pubblicato da admin) -->
         <a class="btn btn-admin" href="<?= e(base_url('admin/admin_event_add.php')) ?>">
             <span class="admin-btn-content">
                 ➕ Aggiungi evento
@@ -319,11 +380,15 @@ function render_event_row(array $ev, string $section): void
 
     <form method="get"
         action="<?= e(base_url('admin/admin_eventi.php')) ?>"
-
         style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;">
         <div class="field" style="min-width:260px;flex:1;">
             <label for="q">Ricerca live</label>
-            <!-- Ricerca lato server (name="q") + live (data-filter="eventi") -->
+            <!--
+                Ricerca combinata:
+                - lato server: tramite name="q" e param GET
+                - lato client: tramite attributo data-filter="eventi"
+                  che aggancia lo script JS di ricerca live.
+            -->
             <input
                 id="q"
                 name="q"
@@ -340,7 +405,9 @@ function render_event_row(array $ev, string $section): void
     </form>
 </section>
 
-<!-- Scope per la ricerca live sugli eventi -->
+<!-- Scope per la ricerca live sugli eventi:
+     tutti gli elementi con data-filter-row all'interno di questo container
+     verranno filtrati dal JS in base al valore dell'input data-filter="eventi". -->
 <div data-filter-scope="eventi">
     <section class="card" id="live" aria-label="Eventi approvati e attivi">
         <header class="card-head">

@@ -88,7 +88,7 @@ db_close($conn);
             <h1>Crea il tuo account</h1>
             <p>Compila i campi per registrarti.</p>
         </header>
-        
+
         <!-- Messaggi di errore o conferma registrazione -->
         <?php if ($errore !== ''): ?>
             <div class="alert alert-error" role="alert">
@@ -104,7 +104,7 @@ db_close($conn);
                 </div>
             </div>
         <?php endif; ?>
-        
+
         <!-- Form di registrazione (sticky form con validazione JS + PHP) -->
         <form id="registerForm" class="auth-form" action="registrazione.php" method="POST" novalidate>
 
@@ -184,7 +184,7 @@ db_close($conn);
     </div>
 </section>
 
-<?php 
+<?php
 // Inclusione del footer del sito
 require_once __DIR__ . '/includes/footer.php';
 ?>

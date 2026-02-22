@@ -1,24 +1,44 @@
 <?php
 // =========================================================
 // FILE: admin/admin_dashboard.php
-// Scopo didattico:
-// - Dashboard admin con KPI di sintesi sullo stato della piattaforma
-// - Code di moderazione (eventi e recensioni)
-// - Pannello di azioni rapide per raggiungere le sezioni chiave
-// - Cookie "ec_admin_layout" per preferenza layout dashboard
-// - Popup di notifica quando ci sono elementi in attesa di moderazione
+// =========================================================
+// DESCRIZIONE DIDATTICA:
+//
+// Questa pagina rappresenta la Dashboard dell'Area Admin.
+// È il punto centrale di controllo della piattaforma EnjoyCity.
+//
+// Funzionalità principali:
+// - Visualizzazione KPI dinamici (statistiche in tempo reale)
+// - Code di moderazione (eventi + recensioni)
+// - Sistema di notifica intelligente per nuovi elementi in attesa
+// - Gestione preferenza layout tramite cookie
+// - Navigazione rapida verso le macro-sezioni amministrative
+//
+// Tutti i dati sono caricati dinamicamente da PostgreSQL.
+// La logica è interamente server-side per garantire sicurezza.
 // =========================================================
 
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
+// Inclusione configurazione generale:
+// - Avvio sessione
+// - Connessione DB
+// - Funzioni helper (base_url, e(), ecc.)
 require_once __DIR__ . '/../includes/config.php';
+
+// Verifica sessione attiva
 if (session_status() === PHP_SESSION_NONE) session_start();
 
+
 // =========================================================
-// 1) Guard: SOLO ADMIN
+// 1) GUARD DI SICUREZZA - ACCESSO RISERVATO SOLO ADMIN
 // =========================================================
+// Controllo server-side dei permessi.
+// Impedisce l’accesso diretto via URL a utenti non autorizzati.
+// Non si basa su elementi grafici ma sulla sessione PHP.
+// Questo garantisce sicurezza reale e non aggirabile.
 if (
     !isset($_SESSION['logged']) ||
     $_SESSION['logged'] !== true ||
@@ -29,9 +49,16 @@ if (
     exit;
 }
 
+
 // =========================================================
-// 1-bis) Cookie layout admin: 'full' | 'compact'
+// 1-bis) GESTIONE PREFERENZA LAYOUT DASHBOARD
 // =========================================================
+// Il layout può essere:
+// - full (dettagliato)
+// - compact (solo KPI)
+//
+// La preferenza viene salvata in un cookie per 30 giorni.
+// Questo migliora l’esperienza utente senza appesantire il DB.
 $adminLayoutCookie = 'ec_admin_layout';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['admin_layout'])) {
@@ -39,25 +66,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['admin_layout'])) {
     $expire = time() + (60 * 60 * 24 * 30); // 30 giorni
 
     setcookie($adminLayoutCookie, $layout, $expire, '/');
+
+    // Redirect PRG (Post-Redirect-Get)
+    // Evita reinvio del form al refresh
     header("Location: " . base_url("admin/admin_dashboard.php"));
     exit;
 }
 
+// Se il cookie non esiste → default "full"
 $admin_layout = $_COOKIE[$adminLayoutCookie] ?? 'full';
 
 $page_title = "Dashboard Admin - EnjoyCity";
 $conn       = db_connect();
 
+
 // =========================================================
-// 2) Flash messages (PRG)
+// 2) FLASH MESSAGES (Pattern PRG)
 // =========================================================
+// Permette di mostrare messaggi temporanei
+// dopo un'azione POST (approvazione, rifiuto, ecc.)
 $flash_ok    = $_SESSION['flash_ok']    ?? '';
 $flash_error = $_SESSION['flash_error'] ?? '';
 unset($_SESSION['flash_ok'], $_SESSION['flash_error']);
 
+
 // =========================================================
-// 3) Utility
+// 3) FUNZIONI DI UTILITÀ
 // =========================================================
+
+// Funzione astratta per query di conteggio.
+// Centralizza la logica di esecuzione query.
+// Supporta query parametrizzate (pg_query_params).
+// Riduce duplicazione codice.
 function count_q($conn, string $sql, array $params = []): int
 {
     $res = $params ? pg_query_params($conn, $sql, $params) : pg_query($conn, $sql);
@@ -66,22 +106,27 @@ function count_q($conn, string $sql, array $params = []): int
     return (int)($row['c'] ?? 0);
 }
 
+// Funzione helper per interpretare boolean PostgreSQL
+// (Postgres restituisce 't' e 'f')
 function is_true_pg_local($v): bool
 {
     return ($v === 't' || $v === true || $v === '1' || $v === 1);
 }
 
-// =========================================================
-// 4) KPI principali
-// =========================================================
 
-// Utenti registrati totali
+// =========================================================
+// 4) CALCOLO KPI (Key Performance Indicators)
+// =========================================================
+// I KPI forniscono una fotografia in tempo reale dello stato
+// dell'intera piattaforma.
+//
+// Tutti i dati sono caricati dinamicamente dal database.
+// Non esistono valori hardcoded.
+
 $kpi_utenti = count_q($conn, "SELECT COUNT(*) c FROM utenti");
-
-// Eventi totali
 $kpi_eventi_totali = count_q($conn, "SELECT COUNT(*) c FROM eventi");
 
-// Eventi in vigore (approvati, attivi, non archiviati, futuri)
+// Eventi pubblicati, attivi, non archiviati e futuri
 $kpi_eventi_in_vigore = count_q($conn, "
     SELECT COUNT(*) c
     FROM eventi
@@ -91,7 +136,7 @@ $kpi_eventi_in_vigore = count_q($conn, "
       AND data_evento >= NOW()
 ");
 
-// Eventi conclusi (approvati ma già passati)
+// Eventi conclusi (storico)
 $kpi_eventi_conclusi = count_q($conn, "
     SELECT COUNT(*) c
     FROM eventi
@@ -99,21 +144,18 @@ $kpi_eventi_conclusi = count_q($conn, "
       AND data_evento < NOW()
 ");
 
-// Eventi in attesa di moderazione
 $kpi_eventi_attesa = count_q($conn, "
     SELECT COUNT(*) c
     FROM eventi
     WHERE stato = $1
 ", ['in_attesa']);
 
-// Eventi rifiutati
 $kpi_eventi_rifiutati = count_q($conn, "
     SELECT COUNT(*) c
     FROM eventi
     WHERE stato = $1
 ", ['rifiutato']);
 
-// Eventi annullati
 $kpi_eventi_annullati = count_q($conn, "
     SELECT COUNT(*) c
     FROM eventi
@@ -121,7 +163,6 @@ $kpi_eventi_annullati = count_q($conn, "
       AND stato_evento = 'annullato'
 ");
 
-// Eventi archiviati
 $kpi_eventi_archiviati = count_q($conn, "
     SELECT COUNT(*) c
     FROM eventi
@@ -129,50 +170,56 @@ $kpi_eventi_archiviati = count_q($conn, "
       AND archiviato = TRUE
 ");
 
-// Recensioni in attesa
 $kpi_rec_attesa = count_q($conn, "
     SELECT COUNT(*) c
     FROM recensioni
     WHERE stato = $1
 ", ['in_attesa']);
 
-// Utenti bloccati
 $kpi_bloccati = count_q($conn, "
     SELECT COUNT(*) c
     FROM utenti
     WHERE bloccato = TRUE
 ");
+
+
 // =========================================================
-// 4-bis) Logica "nuovi elementi in attesa" per popup
+// 4-bis) SISTEMA NOTIFICA INTELLIGENTE (Popup Moderazione)
 // =========================================================
+// Logica:
+// - Calcolo totale elementi in attesa
+// - Confronto con valore precedente salvato in cookie
+// - Mostro popup solo se ci sono nuovi elementi
+//
+// Questo evita notifiche ripetitive e migliora la UX.
+
 $pending_cookie_name = 'ec_admin_last_pending';
 $total_pending_moderazione = (int)$kpi_eventi_attesa + (int)$kpi_rec_attesa;
 
-// Valore precedente salvato nel cookie (se presente)
 $last_pending = isset($_COOKIE[$pending_cookie_name])
     ? (int)$_COOKIE[$pending_cookie_name]
     : 0;
 
-// Mostro il popup SOLO se:
-// - c'è almeno 1 elemento in attesa
-// - il totale è maggiore del valore "visto" l'ultima volta
 $show_popup = false;
 if ($total_pending_moderazione > 0 && $total_pending_moderazione > $last_pending) {
     $show_popup = true;
 }
 
-// Aggiorno il cookie (così la prossima volta so quanti ne aveva già visti)
+// Aggiornamento cookie
 setcookie(
     $pending_cookie_name,
     (string)$total_pending_moderazione,
     time() + (60 * 60 * 24 * 30),
     '/'
 );
-// =========================================================
-// 5) Code di moderazione (lista rapida)
-// =========================================================
 
-// Eventi in attesa
+
+// =========================================================
+// 5) CARICAMENTO CODE DI MODERAZIONE
+// =========================================================
+// Limitazione a 10 elementi per migliorare performance
+// e mantenere la dashboard sintetica.
+
 $pending_events = [];
 $resE = pg_query_params($conn, "
     SELECT e.id, e.titolo, e.data_evento, e.luogo, e.prezzo,
@@ -184,13 +231,13 @@ $resE = pg_query_params($conn, "
     ORDER BY e.data_evento ASC
     LIMIT 10
 ", ['in_attesa']);
+
 if ($resE) {
     while ($r = pg_fetch_assoc($resE)) {
         $pending_events[] = $r;
     }
 }
 
-// Recensioni in attesa
 $pending_reviews = [];
 $resR = pg_query_params($conn, "
     SELECT r.id, r.testo, r.voto, r.data_recensione,
@@ -201,6 +248,7 @@ $resR = pg_query_params($conn, "
     ORDER BY r.data_recensione DESC
     LIMIT 10
 ", ['in_attesa']);
+
 if ($resR) {
     while ($r = pg_fetch_assoc($resR)) {
         $pending_reviews[] = $r;
@@ -209,11 +257,16 @@ if ($resR) {
 
 db_close($conn);
 
+// Inclusione header amministrativo
 require_once __DIR__ . '/../includes/admin_header.php';
 
+
 // =========================================================
-// 6) Helper per action eventi
+// 6) HELPER GENERAZIONE PULSANTI AZIONE
 // =========================================================
+// Centralizza la generazione di form POST.
+// Le azioni non vengono mai eseguite via GET.
+// Riduce duplicazione codice HTML.
 function render_action_btn(int $id, string $azione, string $label, string $class): void
 {
     $confirm = "Confermi '{$azione}' su evento #{$id}?";
@@ -228,9 +281,12 @@ function render_action_btn(int $id, string $azione, string $label, string $class
 <?php
 }
 
+
 // =========================================================
-// 7) Classi dinamiche per alcuni KPI
+// 7) CLASSI CSS DINAMICHE PER KPI
 // =========================================================
+// Applicazione dinamica classi in base allo stato.
+// Separazione logica (PHP) e presentazione (CSS).
 $cls_attesa   = $kpi_eventi_attesa     > 0 ? 'kpi-card kpi-card--warn'   : 'kpi-card';
 $cls_rifiuti  = $kpi_eventi_rifiutati  > 0 ? 'kpi-card kpi-card--muted'  : 'kpi-card';
 $cls_annull   = $kpi_eventi_annullati  > 0 ? 'kpi-card kpi-card--muted'  : 'kpi-card';
@@ -239,13 +295,6 @@ $cls_rec_wait = $kpi_rec_attesa        > 0 ? 'kpi-card kpi-card--warn'   : 'kpi-
 $cls_blocc    = $kpi_bloccati          > 0 ? 'kpi-card kpi-card--danger' : 'kpi-card';
 
 ?>
-
-<?php if ($flash_ok): ?>
-    <div class="alert alert-success" role="status"><?= e($flash_ok) ?></div>
-<?php endif; ?>
-<?php if ($flash_error): ?>
-    <div class="alert alert-error" role="alert"><?= e($flash_error) ?></div>
-<?php endif; ?>
 
 <!-- =========================================================
      7-bis) Preferenza layout dashboard
