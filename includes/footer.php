@@ -39,8 +39,8 @@
 
 <!-- =======================================================
      JS PRINCIPALE
-     - Contiene logiche client-side (es: dropdown, conferme, UX)
-     - Caricato a fine pagina per performance (render first)
+     - Contiene logiche client-side 
+     - Caricato a fine pagina per performance 
 ======================================================= -->
 <script src="<?= base_url('assets/js/script.js') ?>"></script>
 

@@ -3,7 +3,6 @@
 // FILE: admin/admin_review_action.php
 //
 // AREA ADMIN - Moderazione recensioni
-// ------------------------------------------------------------
 // Questo script gestisce le azioni di moderazione delle
 // recensioni lato amministratore.
 //

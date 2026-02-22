@@ -14,11 +14,6 @@
 //    5) CANCELLED -> approvati, stato_evento = 'annullato' (solo admin, non pubblico)
 //    6) ARCHIVED  -> approvati, archiviati = TRUE (solo admin, non pubblico)
 //
-// Note progettuali:
-// - Le varie sezioni condividono una SELECT base e differiscono solo per le WHERE.
-// - La ricerca è lato server (param q) ma è integrata con una ricerca live client-side.
-// - Tutte le azioni sulle righe (archivia, annulla, approva, ecc.) sono demandate
-//   a admin_event_action.php e passano sempre da POST, non da GET.
 // =========================================================
 
 ini_set('display_errors', 1);

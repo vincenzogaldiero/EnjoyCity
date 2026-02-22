@@ -4,7 +4,6 @@
 // - Guard: accesso consentito solo agli ADMIN
 // - Layout: Topbar + Sidebar + Main container
 // - Include CSS base + CSS admin
-// Nota didattica: teniamo JS nel footer per performance e per evitare doppie inclusioni.
 
 if (session_status() === PHP_SESSION_NONE) session_start();
 

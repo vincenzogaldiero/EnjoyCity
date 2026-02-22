@@ -4,6 +4,11 @@
 /**
  * Aggiorna il campo hidden con l'ordine delle categorie preferite
  * (lista di data-id separati da virgola).
+ *
+ * Viene chiamata:
+ * - dopo ogni operazione di drag&drop
+ * - dopo il click-to-move (sposta con click)
+ * - prima del submit del form
  */
 function refreshHiddenInput() {
   const prefList = document.getElementById("list-preferite");
@@ -89,12 +94,13 @@ function onDragEnd(e) {
 
 /**
  * Drag over: permette il drop e calcola la posizione di inserimento
+ * all'interno della lista (riordino verticale).
  */
 function onDragOver(e) {
   const zone = e.currentTarget;
   if (!zone) return;
 
-  e.preventDefault(); // fondamentale per consentire drop
+  e.preventDefault(); // fondamentale per consentire il drop
   zone.classList.add("is-over");
 
   if (!dragEl) return;
@@ -160,6 +166,9 @@ function getDragAfterElement(container, y) {
  * Click-to-move (UX più comoda):
  * - clic su item a sinistra → lo sposta a destra
  * - clic su item a destra → lo sposta a sinistra
+ *
+ * Questo si somma al drag&drop: l'utente può scegliere
+ * se trascinare o semplicemente cliccare.
  */
 function enableClickMove() {
   const left = document.getElementById("list-disponibili");
@@ -194,7 +203,18 @@ function enableClickMove() {
 // ===============================
 // COUNTDOWN (area personale)
 // ===============================
+
+/**
+ * Inizializza i countdown per gli eventi futuri.
+ *
+ * NOTA IMPORTANTE (coerenza con PHP):
+ * - In area_personale.php SOLO il primo evento ATTIVO
+ *   riceve l'attributo data-countdown.
+ * - Gli eventi ANNULLATI hanno solo .countdown SENZA data-countdown,
+ *   quindi NON vengono selezionati e non hanno timer.
+ */
 function initCountdowns() {
+  // Seleziona SOLO gli elementi con attributo data-countdown
   const nodes = document.querySelectorAll(".countdown[data-countdown]");
   if (!nodes.length) return;
 
@@ -205,6 +225,10 @@ function initCountdowns() {
 
     nodes.forEach((el) => {
       const raw = el.getAttribute("data-countdown");
+      if (!raw) {
+        return;
+      }
+
       const targetTime = new Date(raw).getTime();
 
       if (Number.isNaN(targetTime)) {
@@ -212,7 +236,7 @@ function initCountdowns() {
         return;
       }
 
-      let diff = targetTime - now;
+      const diff = targetTime - now;
 
       if (diff <= 0) {
         // Evento iniziato o concluso: messaggio statico
@@ -256,6 +280,7 @@ document.addEventListener("DOMContentLoaded", () => {
     zone.addEventListener("drop", onDrop);
   });
 
+  // Spostamento via click (sinistra ↔ destra)
   enableClickMove();
 
   // Stato iniziale placeholder + hidden
@@ -269,5 +294,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  // Countdown solo sugli elementi con data-countdown (quindi solo evento attivo)
   initCountdowns();
 });

@@ -1,10 +1,10 @@
 // FILE: assets/js/admin.js
-// JS per Area Admin (EnjoyCity)
+// JS per Area Admin
 //
 // Funzioni:
 // 1) Conferma azioni pericolose (data-confirm)
 // 2) Ricerca live client-side su liste/tabelle (data-filter + data-filter-scope + data-filter-row)
-// 3) Piccole migliorie UX (tooltip, reset ricerca con ESC)
+// 3) Piccole migliorie UX
 // 4) Popup notifica moderazione (eventi/recensioni in attesa)
 //
 document.addEventListener("DOMContentLoaded", () => {

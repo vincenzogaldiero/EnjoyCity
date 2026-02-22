@@ -6,12 +6,6 @@
 // Gestione ruoli:
 // - guest  (non loggato)
 // - user   (loggato non admin)
-// - admin  (loggato admin)
-// -----------------------------------------------------
-// Fix inclusi:
-// - Accedi/Registrati con colori diversi (classi login/register)
-// - Variabile nome utente robusta (fallback sicuro)
-// - Dropdown con attributi ARIA (spiegabile alla prof)
 // =====================================================
 
 if (session_status() === PHP_SESSION_NONE) {

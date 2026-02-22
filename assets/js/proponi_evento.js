@@ -4,7 +4,6 @@
 //  - Form pubblico "Proponi evento"
 //  - Form admin "Aggiungi evento"
 // Entrambi usano id="formProponiEvento"
-// Nota: la validazione SERVER-SIDE in PHP resta sempre la sorgente di verità.
 
 "use strict";
 

@@ -4,13 +4,11 @@
 // Scopo didattico:
 // - Mostrare i prossimi eventi prenotati (futuri) + countdown
 // - Mostrare lo storico eventi (passati) nella stessa dashboard
-// - Gestire azioni POST con pattern PRG (Post/Redirect/Get)
-// - Sicurezza: accesso solo user; query parametrizzate; ownership su prenotazioni
 // - Coerenza DB: eventi visibili solo se approvati + non archiviati
 // - Gestione annullamenti:
 //   • se l'evento viene annullato, resta visibile all'utente che aveva prenotato,
 //     marcato come "Annullato" (non annullabile).
-//   • Notifica una-tantum tramite prenotazioni.notificato_annullamento.
+//   • Notifica tramite prenotazioni.notificato_annullamento.
 // =========================================================
 
 ini_set('display_errors', 1);
@@ -21,7 +19,6 @@ if (session_status() === PHP_SESSION_NONE) session_start();
 
 // =========================================================
 // GUARD: solo utenti loggati "user"
-// ---------------------------------------------------------
 // - Se non loggato → redirect a login
 // - Se ruolo = admin → redirect alla dashboard admin
 //   (separazione netta delle aree in base al ruolo)
@@ -40,9 +37,6 @@ $nomeUtente = (string)($_SESSION['nome_utente'] ?? 'Utente');
 
 // =========================================================
 // Flash messages (PRG)
-// ---------------------------------------------------------
-// Vengono impostate nelle azioni POST e mostrate una sola volta
-// all'apertura della pagina (pattern Post/Redirect/Get).
 // =========================================================
 $flash_ok  = $_SESSION['flash_ok']  ?? '';
 $flash_err = $_SESSION['flash_error'] ?? '';
@@ -55,7 +49,6 @@ $conn = db_connect();
 
 // =========================================================
 // POST ACTIONS (PRG)
-// ---------------------------------------------------------
 // Gestione azioni lato server:
 // 1) Annulla prenotazione
 // 2) Invia recensione
@@ -201,7 +194,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // =========================================================
 // NOTIFICHE: eventi annullati prenotati dall'utente
-// ---------------------------------------------------------
 // - Recupero tutte le prenotazioni legate a eventi annullati
 // - Mostro una notifica testuale
 // - Le segno come "notificate" per non ripeterle (notificato_annullamento)
@@ -244,7 +236,6 @@ if (!empty($notifiche_annullati)) {
 
 // =========================================================
 // QUERY DATI PAGINA
-// ---------------------------------------------------------
 // Da qui in poi vengono caricati tutti i blocchi dati
 // necessari alla dashboard (prenotati, storico, preferenze, ecc.)
 // =========================================================
@@ -314,12 +305,10 @@ $res = pg_query_params($conn, $sql_pref, [$user_id]);
 if ($res) while ($row = pg_fetch_assoc($res)) $prefs[] = (int)$row['categoria_id'];
 
 // E) Scelti per te
-// ---------------------------------------------------------
 // Suggerimenti basati su:
 // - categorie preferite
 // - eventi futuri, approvati, non archiviati, attivi
 // - non già prenotati dall'utente
-// ---------------------------------------------------------
 $consigliati = [];
 if (count($prefs) > 0) {
 
@@ -368,10 +357,6 @@ if (count($prefs) > 0) {
 }
 
 // F) Recensioni approvate
-// ---------------------------------------------------------
-// Mostro un piccolo "wall" di recensioni già approvate
-// per dare un feedback sociale sulla piattaforma.
-// ---------------------------------------------------------
 $recensioni = [];
 $sql_rev = "
     SELECT
@@ -603,7 +588,7 @@ require_once __DIR__ . '/includes/header.php';
     </section>
 
     <!-- =====================================================
-         D) RECENSIONI (form + preview)
+         D) RECENSIONI
          -----------------------------------------------------
          - L'utente inserisce una recensione sul sito.
          - Entra in stato "in_attesa" e sarà moderata dall'admin.

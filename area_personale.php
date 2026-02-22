@@ -5,8 +5,9 @@
 // - Area riservata per utente loggato con ruolo "user" (non admin)
 // - Gestione preferenze categorie (drag & drop + salvataggio ordine)
 // - Visualizzazione prossimi eventi prenotati (mini riepilogo + countdown)
+// - Countdown basato SOLO sul primo evento ATTIVO (non annullato)
+// - Gestione eventi annullati: visibili, senza countdown, con badge "ANNULLATO"
 // - Gestione cookie di preferenza vista (cards/list) per pannello eventi
-// - Pattern PRG per il cambio vista, validazioni server-side sulle preferenze
 // =========================================================
 
 ini_set('display_errors', 1);
@@ -44,6 +45,7 @@ $flash_err = '';
 
 /* =========================================
    COOKIE PREFERENZA VISTA EVENTI (utente loggato)
+   -----------------------------------------
    - ec_viewmode_<user_id> = 'cards' | 'list'
    - Questo cookie controlla solo l'aspetto grafico
      del pannello "I tuoi prossimi eventi".
@@ -61,7 +63,7 @@ $view_mode = $_COOKIE[$viewCookieName] ?? 'cards';
 // =========================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['view_mode'])) {
   // Normalizzo il valore: solo 'list' o 'cards'
-  $mode = $_POST['view_mode'] === 'list' ? 'list' : 'cards'; // fallback 'cards'
+  $mode = ($_POST['view_mode'] === 'list') ? 'list' : 'cards'; // fallback 'cards'
   $expire = time() + (60 * 60 * 24 * 30); // 30 giorni
 
   // Cookie valido per tutto il sito
@@ -74,6 +76,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['view_mode'])) {
 
 /* =========================================
    POST: Salvataggio preferenze (lista DESTRA)
+   -----------------------------------------
    - ordine_preferite = "3,1,5"
    - Rappresenta la sequenza di categorie trascinate
      nella colonna "Preferite" e il loro ordine.
@@ -90,8 +93,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ordine_preferite'])) 
   }
 
   // Validazione: deve contenere solo numeri interi e nessun duplicato
-  $seen = [];
+  $seen  = [];
   $valid = true;
+
   foreach ($ids as $x) {
     if (!ctype_digit($x)) {
       $valid = false;
@@ -111,14 +115,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ordine_preferite'])) 
     // Se ci sono ID, verifico che le categorie esistano nel DB
     if (count($ids) > 0) {
       $placeholders = [];
-      $params = [];
+      $params       = [];
+
       foreach ($ids as $i => $catId) {
         $placeholders[] = '$' . ($i + 1);
-        $params[] = (int)$catId;
+        $params[]       = (int)$catId;
       }
+
       $in = implode(',', $placeholders);
 
-      $resCheck = pg_query_params($conn, "SELECT id FROM categorie WHERE id IN ($in);", $params);
+      $resCheck = pg_query_params(
+        $conn,
+        "SELECT id FROM categorie WHERE id IN ($in);",
+        $params
+      );
+
       $found = [];
       if ($resCheck) {
         while ($r = pg_fetch_assoc($resCheck)) {
@@ -144,12 +155,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ordine_preferite'])) 
       // poi reinserisco quelle nuove con l'ordine aggiornato.
       pg_query($conn, "BEGIN");
 
-      $okDel = pg_query_params($conn, "DELETE FROM preferenze_utente WHERE utente_id = $1;", [$user_id]);
+      $okDel = pg_query_params(
+        $conn,
+        "DELETE FROM preferenze_utente WHERE utente_id = $1;",
+        [$user_id]
+      );
 
       $okIns = true;
-      $sqlIns = "INSERT INTO preferenze_utente (utente_id, categoria_id, ordine) VALUES ($1, $2, $3);";
+      $sqlIns = "INSERT INTO preferenze_utente (utente_id, categoria_id, ordine)
+                 VALUES ($1, $2, $3);";
+
       foreach ($ids as $index => $catId) {
-        $resIns = pg_query_params($conn, $sqlIns, [$user_id, (int)$catId, $index + 1]);
+        $resIns = pg_query_params($conn, $sqlIns, [
+          $user_id,
+          (int)$catId,
+          $index + 1
+        ]);
         if (!$resIns) {
           $okIns = false;
           break;
@@ -174,7 +195,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ordine_preferite'])) 
    - Se esiste una preferenza per l'utente (ordine non NULL),
      finisce nell'elenco "preferite", altrimenti in "disponibili".
    ========================================= */
-$preferite = [];
+$preferite   = [];
 $disponibili = [];
 
 // Query unica con LEFT JOIN su preferenze_utente
@@ -213,19 +234,26 @@ if ($resCats) {
    - Piccolo riepilogo dei prossimi eventi
      per dare contesto all'utente.
    - Ordine cronologico crescente.
+   - Includo anche eventi annullati, ma:
+     • niente countdown
+     • badge "ANNULLATO" per chiarezza UX
    ========================================= */
 $miei_eventi = [];
+
 $sqlMy = "
   SELECT
-    e.id AS evento_id,
-    e.titolo,
-    e.luogo,
+    e.id           AS evento_id,
+    e.titolo       AS titolo,
+    e.luogo        AS luogo,
     e.data_evento,
+    e.stato_evento,
+    e.archiviato,
     p.quantita
   FROM prenotazioni p
   JOIN eventi e ON e.id = p.evento_id
   WHERE p.utente_id = $1
     AND e.stato = 'approvato'
+    AND e.archiviato = FALSE
     AND e.data_evento >= NOW()
   ORDER BY e.data_evento ASC
   LIMIT 20;
@@ -252,7 +280,9 @@ $page_title = "Area personale - EnjoyCity";
     <header class="section-title">
       <div>
         <h2>Area personale</h2>
-        <p class="muted">Gestisci prenotazioni e preferenze (trascina a destra ciò che ti interessa).</p>
+        <p class="muted">
+          Gestisci prenotazioni e preferenze (trascina a destra ciò che ti interessa).
+        </p>
       </div>
 
       <div class="section-actions">
@@ -271,38 +301,77 @@ $page_title = "Area personale - EnjoyCity";
 
     <section class="area-grid" aria-label="Pannelli area personale">
 
-      <!-- PANNELLO EVENTI -->
-      <!--
-        area-events-<?= e($view_mode) ?> permette di cambiare layout
-        (es. cards / list) solo con il CSS, in base al cookie.
-      -->
+      <!-- =====================================================
+           PANNELLO EVENTI
+           -----------------------------------------------------
+           area-events-<?= e($view_mode) ?> permette di cambiare layout
+           (cards / list) solo con il CSS, in base al cookie.
+           ===================================================== -->
       <article class="card area-events area-events-<?= e($view_mode) ?>">
         <div class="card-body">
           <h3>🎫 I tuoi prossimi eventi</h3>
 
           <?php if (count($miei_eventi) === 0): ?>
             <p class="muted">Non hai prenotazioni attive.</p>
-            <a class="cta-login" href="<?= base_url('eventi.php') ?>">Cerca eventi <small>e prenota</small></a>
-          <?php else: ?>
-            <?php
-            // Il primo evento funge da "focus" per il box countdown
-            $first = $miei_eventi[0];
-            $firstISO = date('c', strtotime((string)$first['data_evento']));
-            ?>
-            <div class="countdown-box">
-              <div class="tag-row">
-                <span class="tag cardtag hot">Countdown</span>
-                <span class="tag cardtag"><?= e(fmt_datetime($first['data_evento'])) ?></span>
-              </div>
-              <strong><?= e($first['titolo']) ?></strong>
-              <p class="muted"><?= e($first['luogo']) ?></p>
-              <!-- Data in formato ISO per il countdown JS (area_personale.js) -->
-              <p class="countdown" data-countdown="<?= e($firstISO) ?>">Calcolo…</p>
-            </div>
+            <a class="cta-login" href="<?= base_url('eventi.php') ?>">
+              Cerca eventi <small>e prenota</small>
+            </a>
 
+          <?php else: ?>
+
+            <?php
+            // -------------------------------------------------
+            // Seleziono il PRIMO evento ATTIVO per il countdown
+            // (se tutti sono annullati, non mostro il countdown)
+            // -------------------------------------------------
+            $firstActive = null;
+            foreach ($miei_eventi as $ev) {
+              $statoEv = (string)($ev['stato_evento'] ?? 'attivo');
+              if ($statoEv === 'attivo') {
+                $firstActive = $ev;
+                break;
+              }
+            }
+            ?>
+
+            <?php if ($firstActive !== null): ?>
+              <?php
+              $firstISO   = date('c', strtotime((string)$firstActive['data_evento']));
+              $statoFirst = (string)($firstActive['stato_evento'] ?? 'attivo');
+              ?>
+              <div class="countdown-box">
+                <div class="tag-row">
+                  <span class="tag cardtag hot">Countdown</span>
+                  <span class="tag cardtag">
+                    <?= e(fmt_datetime($firstActive['data_evento'])) ?>
+                  </span>
+                </div>
+                <strong><?= e($firstActive['titolo']) ?></strong>
+                <p class="muted"><?= e($firstActive['luogo']) ?></p>
+
+                <!-- Data in formato ISO per il countdown JS (area_personale.js) -->
+                <p class="countdown" data-countdown="<?= e($firstISO) ?>">Calcolo…</p>
+              </div>
+            <?php else: ?>
+              <!-- Nessun evento attivo: alcuni potrebbero essere annullati -->
+              <div class="countdown-box">
+                <div class="tag-row">
+                  <span class="tag cardtag hot">Nessun evento attivo</span>
+                </div>
+                <p class="muted">
+                  Al momento non ci sono eventi attivi con countdown.
+                  Controlla comunque la lista delle tue prenotazioni qui sotto.
+                </p>
+              </div>
+            <?php endif; ?>
+
+            <!-- Lista di TUTTI gli eventi prenotati futuri (attivi + annullati) -->
             <ul class="my-list" aria-label="Lista prenotazioni">
               <?php foreach ($miei_eventi as $ev): ?>
-                <?php $evId = (int)$ev['evento_id']; ?>
+                <?php
+                $evId    = (int)$ev['evento_id'];
+                $statoEv = (string)($ev['stato_evento'] ?? 'attivo');
+                ?>
                 <li class="my-item">
                   <div>
                     <strong><?= e($ev['titolo']) ?></strong>
@@ -310,17 +379,28 @@ $page_title = "Area personale - EnjoyCity";
                       <span class="pill"><?= e(fmt_datetime($ev['data_evento'])) ?></span>
                       <span class="pill"><?= e($ev['luogo']) ?></span>
                       <span class="pill">Biglietti: <?= (int)$ev['quantita'] ?></span>
+
+                      <?php if ($statoEv === 'annullato'): ?>
+                        <!-- Stesso stile badge usato in dashboard (.pill.hot) -->
+                        <span class="pill hot">ANNULLATO</span>
+                      <?php endif; ?>
                     </div>
                   </div>
                   <a class="btn" href="<?= base_url('evento.php?id=' . $evId) ?>">Apri</a>
                 </li>
               <?php endforeach; ?>
             </ul>
+
           <?php endif; ?>
         </div>
       </article>
 
-      <!-- PANNELLO PREFERENZE (2 colonne: disponibili / preferite) -->
+      <!-- =====================================================
+           PANNELLO PREFERENZE (2 colonne: disponibili / preferite)
+           -------------------------------------------------------
+           - Drag & drop gestito da assets/js/area_personale.js
+           - Il form invia ordine_preferite come stringa "id1,id2,id3".
+           ===================================================== -->
       <article class="card">
         <div class="card-body">
           <h3>❤️ Le tue preferenze</h3>
@@ -329,12 +409,8 @@ $page_title = "Area personale - EnjoyCity";
             Riordina le preferite trascinando in alto/basso.
           </p>
 
-          <!--
-            Il form invia ordine_preferite come stringa "id1,id2,id3".
-            Lato JS (area_personale.js) aggiorno l'hidden input
-            in base all'ordine della lista "Preferite".
-          -->
-          <form method="post" id="pref-form" action="<?= base_url('area_personale.php') ?>" novalidate>
+          <form method="post" id="pref-form"
+            action="<?= base_url('area_personale.php') ?>" novalidate>
 
             <div class="pref-columns" aria-label="Seleziona categorie preferite">
 
@@ -346,7 +422,8 @@ $page_title = "Area personale - EnjoyCity";
                     <li class="drop-empty">Nessuna categoria disponibile.</li>
                   <?php else: ?>
                     <?php foreach ($disponibili as $cat): ?>
-                      <li class="sortable-item" draggable="true" data-id="<?= (int)$cat['id'] ?>">
+                      <li class="sortable-item" draggable="true"
+                        data-id="<?= (int)$cat['id'] ?>">
                         <span><?= e($cat['nome']) ?></span>
                         <span aria-hidden="true">⇄</span>
                       </li>
@@ -358,12 +435,16 @@ $page_title = "Area personale - EnjoyCity";
               <!-- Destra: categorie preferite -->
               <div class="pref-col">
                 <h4 class="pref-title">Preferite</h4>
-                <ul id="list-preferite" class="dropzone preferite" aria-label="Categorie preferite">
+                <ul id="list-preferite" class="dropzone preferite"
+                  aria-label="Categorie preferite">
                   <?php if (count($preferite) === 0): ?>
-                    <li class="drop-empty">Trascina qui le categorie che ti interessano.</li>
+                    <li class="drop-empty">
+                      Trascina qui le categorie che ti interessano.
+                    </li>
                   <?php else: ?>
                     <?php foreach ($preferite as $cat): ?>
-                      <li class="sortable-item" draggable="true" data-id="<?= (int)$cat['id'] ?>">
+                      <li class="sortable-item" draggable="true"
+                        data-id="<?= (int)$cat['id'] ?>">
                         <span><?= e($cat['nome']) ?></span>
                         <span aria-hidden="true">☰</span>
                       </li>
@@ -375,11 +456,19 @@ $page_title = "Area personale - EnjoyCity";
             </div>
 
             <!-- Hidden: conterrà l'ordine degli ID preferiti (es. "3,1,5") -->
-            <input type="hidden" name="ordine_preferite" id="ordine_input" value="">
-            <button type="submit" class="btn-search pref-save" id="savePrefsBtn">Salva preferenze</button>
+            <input type="hidden" name="ordine_preferite"
+              id="ordine_input" value="">
+
+            <button type="submit"
+              class="btn-search pref-save"
+              id="savePrefsBtn">
+              Salva preferenze
+            </button>
           </form>
 
-          <p class="muted pref-hint">Suggerimento: metti 3–5 categorie per avere consigli più precisi.</p>
+          <p class="muted pref-hint">
+            Suggerimento: metti 3–5 categorie per avere consigli più precisi.
+          </p>
         </div>
       </article>
 
@@ -391,7 +480,7 @@ $page_title = "Area personale - EnjoyCity";
 <!-- JS dedicato all'area personale:
      - drag & drop categorie
      - aggiornamento hidden ordine_preferite
-     - gestione countdown evento più vicino -->
+     - gestione countdown evento più vicino (solo eventi attivi) -->
 <script src="<?= base_url('assets/js/area_personale.js') ?>"></script>
 
 <?php require_once __DIR__ . '/includes/footer.php'; ?>

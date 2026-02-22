@@ -15,7 +15,6 @@
 // - Navigazione rapida verso le macro-sezioni amministrative
 //
 // Tutti i dati sono caricati dinamicamente da PostgreSQL.
-// La logica è interamente server-side per garantire sicurezza.
 // =========================================================
 
 ini_set('display_errors', 1);
