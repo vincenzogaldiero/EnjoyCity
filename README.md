@@ -17,6 +17,7 @@ sara.conte@hotmail.it Password: SaraConte UTENTE BLOCCATO fino al 28/02/2026
 giulia.esposito@unisa.it Password: GiuliaEsposito
 paolo.gallo@libero.it Password: PaoloGallo
 marta.ferri@gmail.com Password: MartaFerri
+alice_rossi@gmail.com Password: Matita24
 
 Login Admin:
 vincenzo.galdiero@enjoycity.it Password: enjoyAvellino
